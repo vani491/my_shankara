@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "58392746649",
+    "project_id": "first-firebase-project-c0d4a",
+    "storage_bucket": "first-firebase-project-c0d4a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:58392746649:android:1f306a0ef025cafd677608",
+        "android_client_info": {
+          "package_name": "com.example.myshankara"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCFlBbr3p4sjR8aiiV0VheXY9xg87IrCY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

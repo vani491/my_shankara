@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "363351531471",
+    "project_id": "myshankara-app",
+    "storage_bucket": "myshankara-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:363351531471:android:5f1641822ff266e5617cba",
+        "android_client_info": {
+          "package_name": "com.example.myshankara"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "363351531471-0fuerui13uv84vo5l3rnvaq4t90uiv9s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myshankara",
+            "certificate_hash": "c607ae1b10fa1f90cd19cdaecb19504aa57da818"
+          }
+        },
+        {
+          "client_id": "363351531471-438jmv9hs995eh2ipaue76ob74o1gugm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myshankara",
+            "certificate_hash": "fa00197b28a99485c313e0041ac9574d1df24191"
+          }
+        },
+        {
+          "client_id": "363351531471-b1fbmgj2icd897367spckpv2jnhl7tno.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myshankara",
+            "certificate_hash": "a622de10e5f8b9e61a2b18f818d24feaa6c18af6"
+          }
+        },
+        {
+          "client_id": "363351531471-2jvr6bf58894c32qg4rqlnu0usi0ritp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBPbaB4fLB7rSZD9ElYxPhl9obY_P3_LwM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "363351531471-2jvr6bf58894c32qg4rqlnu0usi0ritp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

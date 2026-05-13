@@ -1,0 +1,1056 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:myshankara/theme/app_theme.dart';
+import '../theme/colors.dart';
+// ─────────────────────────────────────────────────────────────────────────────
+// DAILY DARSHAN — 4-SCREEN GUIDED EXPERIENCE
+// Screens: Story → Interpretation → Reflection + Blessing → Diya + Next Day
+// ─────────────────────────────────────────────────────────────────────────────
+
+class DarshanScreen extends StatefulWidget {
+  /// Pass [userType] as 'guest' or 'signedIn'.
+  /// Pass [onDarshanComplete] callback to update weekly/lifetime tracker.
+  final String userType;
+  final VoidCallback? onDarshanComplete;
+
+  const DarshanScreen({
+    super.key,
+    this.userType = 'guest',
+    this.onDarshanComplete,
+  });
+
+  @override
+  State<DarshanScreen> createState() => _DarshanScreenState();
+}
+
+class _DarshanScreenState extends State<DarshanScreen>
+    with TickerProviderStateMixin {
+  // ── State ──────────────────────────────────────────────────────────────────
+  int _currentStep = 0; // 0–3
+  bool _diyaLit = false;
+  bool _diyaAnimating = false;
+
+  late final PageController _pageController;
+  late AnimationController _diyaGlowController;
+  late Animation<double> _diyaGlowAnim;
+
+  // ── Theme ──────────────────────────────────────────────────────────────────
+  static const _saffron    = Color(0xFFF5A623);
+  static const _deepSaffron= Color(0xFFE07B00);
+  static const _cream      = Color(0xFFFDF6EC);
+  static const _warmWhite  = Color(0xFFFFF9F0);
+  static const _gold       = Color(0xFFFFB347);
+  static const _textDark   = Color(0xFF2C1A0E);
+  static const _textMid    = Color(0xFF7A5C3F);
+  static const _textLight  = Color(0xFFA68060);
+  static const _indigo     = Color(0xFF5C5DA6);
+  static const _softGreen  = Color(0xFF4A7C59);
+  static const _terracotta = Color(0xFFC94E2D);
+
+  // ── CTA config per step ────────────────────────────────────────────────────
+  static const _ctaLabels = ['Understand', 'Reflect', 'Light', 'Complete Darshan'];
+  static const _ctaColors = [_saffron, _indigo, _softGreen, _terracotta];
+
+  // ── Background images per step ─────────────────────────────────────────────
+  static const _backgrounds = [
+    'assets/back1.webp',
+    'assets/back3.webp',
+    'assets/back2.webp',
+    'assets/back1.webp',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+
+    _diyaGlowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+
+    _diyaGlowAnim = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _diyaGlowController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _diyaGlowController.dispose();
+    super.dispose();
+  }
+
+  // ── Navigation helpers ─────────────────────────────────────────────────────
+  void _goNext() {
+    if (_currentStep < 3) {
+      HapticFeedback.lightImpact();
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeInOutCubic,
+      );
+    }
+  }
+
+  void _goPrev() {
+    if (_currentStep > 0) {
+      HapticFeedback.lightImpact();
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeInOutCubic,
+      );
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _handleCTA() {
+    if (_currentStep == 2) {
+      // Screen 3: "Light" → go to Diya screen
+      _goNext();
+    } else if (_currentStep == 3) {
+      // Screen 4: "Complete Darshan"
+      if (widget.userType == 'signedIn') {
+        widget.onDarshanComplete?.call();
+      }
+      Navigator.of(context).pop();
+    } else {
+      _goNext();
+    }
+  }
+
+  void _lightDiya() {
+    if (_diyaLit) return;
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _diyaAnimating = true;
+    });
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) {
+        setState(() {
+          _diyaLit = true;
+          _diyaAnimating = false;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _cream,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Background image — crossfades on step change ──────────────────
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 500),
+            child: Image.asset(
+              _backgrounds[_currentStep],
+              key: ValueKey(_currentStep),
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+            ),
+          ),
+
+          // ── All UI content on top of the background ───────────────────────
+          SafeArea(
+            child: Column(
+              children: [
+                // ── App Bar ────────────────────────────────────────────────
+                _DarshanAppBar(
+                  onBack: _goPrev,
+                  currentStep: _currentStep,
+                ),
+
+                // ── Progress dots ──────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  child: _ProgressDots(currentStep: _currentStep),
+                ),
+
+                // ── Page content ───────────────────────────────────────────
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: (i) => setState(() => _currentStep = i),
+                    children: [
+                      _StoryScreen(),
+                      _InterpretationScreen(),
+                      _ReflectionBlessingScreen(),
+                      _DiyaScreen(
+                        diyaLit: _diyaLit,
+                        diyaAnimating: _diyaAnimating,
+                        glowAnim: _diyaGlowAnim,
+                        onLightDiya: _lightDiya,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── CTA ────────────────────────────────────────────────────
+                _DarshanCTA(
+                  step: _currentStep,
+                  ctaLabel: _ctaLabels[_currentStep],
+                  ctaColor: _ctaColors[_currentStep],
+                  onCTA: _handleCTA,
+                  onReturnHome: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APP BAR
+// ─────────────────────────────────────────────────────────────────────────────
+class _DarshanAppBar extends StatelessWidget {
+  final VoidCallback onBack;
+  final int currentStep;
+
+  const _DarshanAppBar({required this.onBack, required this.currentStep});
+
+  @override
+  Widget build(BuildContext context) {
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Centered title
+          Text(
+            'Daily Darshan',
+            style: theme.textTheme.titleLarge,
+          ),
+          // Back button pinned to the left
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GestureDetector(
+              onTap: onBack,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.arrow_back_rounded,
+                    size: 20, color: _DarshanScreenState._textDark),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROGRESS DOTS
+// ─────────────────────────────────────────────────────────────────────────────
+class _ProgressDots extends StatelessWidget {
+  final int currentStep;
+
+  const _ProgressDots({required this.currentStep});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: List.generate(4, (i) {
+        final isActive = i == currentStep;
+        final isPast   = i < currentStep;
+        return Expanded(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            height: 5,
+            decoration: BoxDecoration(
+              color: isActive
+                  ? _DarshanScreenState._saffron
+                  : isPast
+                  ? _DarshanScreenState._gold.withOpacity(0.6)
+                  : const Color(0xFFE0D5C8),
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCREEN 1 — STORY
+// ─────────────────────────────────────────────────────────────────────────────
+class _StoryScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 16),
+
+          // Icon
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: _DarshanScreenState._saffron.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+                Icons.menu_book_rounded,
+                size: 34,
+                color: _DarshanScreenState._saffron
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text('Story', style: theme.textTheme.titleMedium?.copyWith(
+            color: _DarshanScreenState._saffron
+          )),
+          const SizedBox(height: 2),
+          Text(
+            'Timeless wisdom. Eternal lessons.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: _DarshanScreenState._textMid,
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          // Story paragraphs
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              'There was a moment when everything stood still.',
+              'Questions arose. The mind was restless. The answer was not outside.',
+              'In that stillness, the Divine spoke—not with words, but with clarity.',
+              'And what was needed most became known.',
+            ].map((text) => Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(
+                text,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: _DarshanScreenState._textDark,
+                ),
+              ),
+            )).toList(),
+          ),
+
+          const SizedBox(height: 28),
+
+          // Reflection teaser
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              color: _DarshanScreenState._saffron.withOpacity(0.09),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                  color: _DarshanScreenState._saffron.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Text('✨', style: TextStyle(
+                  fontSize: 28,
+                  color: _DarshanScreenState._saffron,
+                )),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Every story is a mirror.\nWhat will you see today?',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: _DarshanScreenState._textDark,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Scenic illustration (mountain + sun gradient)
+          const SizedBox(height: 28),
+          Image.asset(
+            'assets/screen-1.webp',
+            width: double.infinity,
+            height: 140,
+            fit: BoxFit.cover,
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCREEN 2 — THE INTERPRETATION
+// ─────────────────────────────────────────────────────────────────────────────
+class _InterpretationScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 16),
+
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: _DarshanScreenState._indigo.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.lightbulb_outline_rounded,
+                size: 34, color: _DarshanScreenState._indigo),
+          ),
+          const SizedBox(height: 20),
+          Text('Insight', style: theme.textTheme.titleMedium ),
+          const SizedBox(height: 2),
+          Text(
+            'Wisdom for today\'s life.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: _DarshanScreenState._indigo,
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          // Insight text
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text('This teaching is not just from another time.'),
+              SizedBox(height: 14),
+              Text('It speaks to the moments you face today.'),
+              SizedBox(height: 14),
+              Text('The deeper meaning is simple, yet powerful:'),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Pull quote card
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: _DarshanScreenState._indigo.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                  color: _DarshanScreenState._indigo.withOpacity(0.15)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.format_quote_rounded,
+                    size: 28,
+                    color: _DarshanScreenState._textDark),
+                const SizedBox(width: 8), // ← was height, should be width
+                Expanded( // ← wrap Text with Expanded
+                  child: Text(
+                    'When you change the way you see, everything you do changes.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: _DarshanScreenState._textDark,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+
+
+          const SizedBox(height: 28),
+          Image.asset(
+            'assets/2ndpaeg.png',
+            width: double.infinity,
+            height: 200,
+            fit: BoxFit.cover,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Let this sink in, Let it guide you...',
+            style: const TextStyle(
+              fontSize: 15.5,
+              color: _DarshanScreenState._textDark,
+              height: 1.6,
+            ),
+          ),
+          Text(
+            '',
+            style: const TextStyle(
+              fontSize: 15.5,
+              color: _DarshanScreenState._textDark,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightLine extends StatelessWidget {
+  final String text;
+  const _InsightLine(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 15.5,
+          color: _DarshanScreenState._textDark,
+          height: 1.6,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCREEN 3 — REFLECTION + BLESSING
+// ─────────────────────────────────────────────────────────────────────────────
+class _ReflectionBlessingScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 16),
+
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: _DarshanScreenState._softGreen.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.eco_outlined,
+                size: 32, color: _DarshanScreenState._softGreen),
+          ),
+          const SizedBox(height: 20),
+          Text( 'Within. Reflect. Receive.', style: theme.textTheme.titleMedium),
+
+          const SizedBox(height: 6),
+          Text(
+            'Look inside. Let wisdom settle',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: _DarshanScreenState._softGreen,
+            ),
+          ),
+          const SizedBox(height: 28),
+
+          // Reflection section header
+          _SectionLabel(
+            icon: Icons.eco_rounded,
+            color: _DarshanScreenState._softGreen,
+            label: 'REFLECTION',
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Take a moment to connect this wisdom to your life.',
+            style: TextStyle(
+              fontSize: 14,
+              color: _DarshanScreenState._textMid,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          _ReflectionPrompt('Where in my life is this message showing up?'),
+          const SizedBox(height: 10),
+          _ReflectionPrompt('What is one small step I can take today?'),
+
+          const SizedBox(height: 28),
+
+          // Divider with lotus
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                    height: 1,
+                    color: _DarshanScreenState._textLight.withOpacity(0.2)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Text('🪷',
+                    style: TextStyle(
+                        fontSize: 20,
+                        color:
+                        _DarshanScreenState._textLight.withOpacity(0.6))),
+              ),
+              Expanded(
+                child: Container(
+                    height: 1,
+                    color: _DarshanScreenState._textLight.withOpacity(0.2)),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // Blessing section
+          _SectionLabel(
+            icon: Icons.stars_rounded,
+            color: _DarshanScreenState._saffron,
+            label: 'BLESSING',
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'May this wisdom stay with you.',
+            style: TextStyle(
+              fontSize: 14,
+              color: _DarshanScreenState._textMid,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'You are guided, even when you feel lost.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              color: _DarshanScreenState._softGreen,
+              fontStyle: FontStyle.italic,
+              height: 1.4,
+            ),
+          ),
+
+          const SizedBox(height: 28),
+          Image.asset(
+            'assets/screen3.png',
+            width: double.infinity,
+            height: 200,
+            fit: BoxFit.cover,
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  const _SectionLabel({required this.icon, required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: color,
+            letterSpacing: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReflectionPrompt extends StatelessWidget {
+  final String text;
+  const _ReflectionPrompt(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: _DarshanScreenState._softGreen.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: _DarshanScreenState._softGreen.withOpacity(0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            margin: const EdgeInsets.only(top: 4, right: 10),
+            decoration: const BoxDecoration(
+              color: _DarshanScreenState._softGreen,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 14.5,
+                color: _DarshanScreenState._textDark,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCREEN 4 — DIYA + NEXT DAY
+// ─────────────────────────────────────────────────────────────────────────────
+class _DiyaScreen extends StatelessWidget {
+  final bool diyaLit;
+  final bool diyaAnimating;
+  final Animation<double> glowAnim;
+  final VoidCallback onLightDiya;
+
+  const _DiyaScreen({
+    required this.diyaLit,
+    required this.diyaAnimating,
+    required this.glowAnim,
+    required this.onLightDiya,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 16),
+          Image.asset(
+            'assets/diya-darsan.gif',
+            width: 300,
+            height: 300,
+            fit: BoxFit.cover,
+          ),
+
+          const SizedBox(height: 20),
+          Text(
+            'Light Your Diya',
+            style: theme.textTheme.titleMedium
+          ),
+          const SizedBox(height: 6),
+          Text(
+            diyaLit
+                ? 'Your presence today is your offering.'
+                : 'Your presence is your offering.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: _DarshanScreenState._terracotta,
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Description
+          Text(
+            diyaLit
+                ? 'You have honoured the wisdom within and the journey ahead.'
+                : 'By lighting your diya, you honor the wisdom within and the journey ahead.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: _DarshanScreenState._textMid,
+            )
+          ),
+          const SizedBox(height: 20),
+          // "Small act" note
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: _DarshanScreenState._saffron.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.favorite_border_rounded,
+                    size: 18, color: _DarshanScreenState._saffron),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'This small act creates lasting light.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: _DarshanScreenState._textDark,
+                      fontWeight: FontWeight.bold,
+                    )
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: FilledButton.icon(
+              onPressed: onLightDiya,
+              icon: Image.asset('assets/fire.png', width: 24, height: 24),
+              label: Text(
+                  'Light Your Diya',
+                  style: theme.textTheme.bodyLarge?.copyWith(color: Colors.white)
+              ),
+            ),
+          ),
+
+          SizedBox(height: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+
+            child: Column(
+              children: [
+                Text('🌅', style: TextStyle(fontSize: 28)),
+                SizedBox(height: 8),
+                Text(
+                  'See you tomorrow',
+                    style: theme.textTheme.bodyLarge
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'A new teaching. A new insight.\nAnother step on your path.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOTTOM CTA
+// ─────────────────────────────────────────────────────────────────────────────
+class _DarshanCTA extends StatelessWidget {
+  final int step;
+  final String ctaLabel;
+  final Color ctaColor;
+  final VoidCallback onCTA;
+  final VoidCallback onReturnHome;
+
+  const _DarshanCTA({
+    required this.step,
+    required this.ctaLabel,
+    required this.ctaColor,
+    required this.onCTA,
+    required this.onReturnHome,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        border: Border(
+          top: BorderSide(
+              color: Colors.black.withOpacity(0.06), width: 1),
+        ),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: FilledButton(
+              onPressed: onCTA,
+              style: FilledButton.styleFrom(
+                backgroundColor: ctaColor,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    ctaLabel,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: Colors.white
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    step == 3
+                        ? Icons.check_rounded
+                        : Icons.arrow_forward_rounded,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (step < 3)
+            const Text(
+              'Swipe left or tap to continue',
+              style: TextStyle(
+                fontSize: 12,
+                color: _DarshanScreenState._textLight,
+              ),
+            ),
+          if (step == 3)
+            GestureDetector(
+              onTap: onReturnHome,
+              child: const Text(
+                'Return to Home',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _DarshanScreenState._textMid,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED: Sunrise Landscape Illustration
+// ─────────────────────────────────────────────────────────────────────────────
+class _SunriseLandscape extends StatelessWidget {
+  final Color tint;
+  const _SunriseLandscape({required this.tint});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 90,
+      child: CustomPaint(
+        size: const Size(double.infinity, 90),
+        painter: _LandscapePainter(tint: tint),
+      ),
+    );
+  }
+}
+
+class _LandscapePainter extends CustomPainter {
+  final Color tint;
+  const _LandscapePainter({required this.tint});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Sky gradient
+    final skyPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          tint.withOpacity(0.05),
+          tint.withOpacity(0.14),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, h), skyPaint);
+
+    // Sun
+    final sunPaint = Paint()..color = tint.withOpacity(0.35);
+    canvas.drawCircle(Offset(w / 2, h * 0.35), 22, sunPaint);
+    final sunCorePaint = Paint()..color = tint.withOpacity(0.55);
+    canvas.drawCircle(Offset(w / 2, h * 0.35), 14, sunCorePaint);
+
+    // Far mountain
+    final farMtnPaint = Paint()..color = tint.withOpacity(0.12);
+    final farMtn = Path()
+      ..moveTo(0, h * 0.75)
+      ..lineTo(w * 0.2, h * 0.35)
+      ..lineTo(w * 0.45, h * 0.6)
+      ..lineTo(w * 0.65, h * 0.3)
+      ..lineTo(w * 0.85, h * 0.55)
+      ..lineTo(w, h * 0.45)
+      ..lineTo(w, h)
+      ..lineTo(0, h)
+      ..close();
+    canvas.drawPath(farMtn, farMtnPaint);
+
+    // Near mountain
+    final nearMtnPaint = Paint()..color = tint.withOpacity(0.2);
+    final nearMtn = Path()
+      ..moveTo(0, h)
+      ..lineTo(w * 0.15, h * 0.58)
+      ..lineTo(w * 0.35, h * 0.78)
+      ..lineTo(w * 0.55, h * 0.5)
+      ..lineTo(w * 0.75, h * 0.72)
+      ..lineTo(w, h * 0.6)
+      ..lineTo(w, h)
+      ..close();
+    canvas.drawPath(nearMtn, nearMtnPaint);
+  }
+
+  @override
+  bool shouldRepaint(_LandscapePainter old) => old.tint != tint;
+}
