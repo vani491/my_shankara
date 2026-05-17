@@ -302,7 +302,10 @@ Future<void> showSignOutConfirmDialog(
         builder: (ctx, setState) {
           return AlertDialog(
             title: const Text('Sign out?'),
-            content: const Text("You’ll need to sign in again to continue."),
+            content: const Text(
+              "You'll need to sign in again to continue.",
+              style: TextStyle(color: Colors.grey),
+            ),
             actions: [
               TextButton(
                 onPressed: isSigningOut ? null : () => Navigator.of(ctx).pop(),

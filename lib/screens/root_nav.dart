@@ -41,6 +41,7 @@ class _RootNavState extends State<RootNav> {
     final List<Widget> pages = <Widget>[
       HomeScreen(
         onGoToChat: () => setState(() => _index = 2),
+        onGoToDarshan: () => setState(() => _index = 1),
       ),
       DarshanScreen(
         onGoHome: () => setState(() => _index = 0),

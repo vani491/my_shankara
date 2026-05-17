@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -6,7 +7,7 @@ import 'package:myshankara/theme/app_theme.dart';
 import '../theme/colors.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:go_router/go_router.dart';
-
+import '../services/diya_service.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // DAILY DARSHAN — 4-SCREEN GUIDED EXPERIENCE
 // Screens: Story → Interpretation → Reflection + Blessing → Diya + Next Day
@@ -21,13 +22,11 @@ import 'package:go_router/go_router.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 class DarshanScreen extends StatefulWidget {
-  final String userType;
   final VoidCallback? onDarshanComplete;
   final VoidCallback? onGoHome;
 
   const DarshanScreen({
     super.key,
-    this.userType = 'guest',
     this.onDarshanComplete,
     this.onGoHome,
   });
@@ -42,7 +41,7 @@ class _DarshanScreenState extends State<DarshanScreen>
   int _currentStep = 0;
   bool _diyaLit = false;
   bool _diyaAnimating = false;
-
+  bool get _isGuest => FirebaseAuth.instance.currentUser?.isAnonymous ?? true;
   // ── Darshan API data ───────────────────────────────────────────────────────
   bool _isLoading = true;
   int _week = 0;
@@ -93,6 +92,12 @@ class _DarshanScreenState extends State<DarshanScreen>
     );
 
     _fetchDarshan();
+    // Check the today status for diya
+    DiyaService.isDiyaLitToday().then((alreadyLit) {
+      if (mounted && alreadyLit) {
+        setState(() => _diyaLit = true);
+      }
+    });
   }
 
 
@@ -159,13 +164,12 @@ class _DarshanScreenState extends State<DarshanScreen>
       );
     } else {
       widget.onGoHome?.call();
-     // Navigator.of(context).pop();
     }
   }
 
   void _handleCTA() {
     if (_currentStep == 3) {
-      if (widget.userType == 'signedIn') widget.onDarshanComplete?.call();
+      if (!_isGuest) widget.onDarshanComplete?.call();
       widget.onGoHome?.call();
     } else {
       _goNext();
@@ -174,11 +178,150 @@ class _DarshanScreenState extends State<DarshanScreen>
 
   void _lightDiya() {
     if (_diyaLit) return;
+
+    // Guest user check
+    if (_isGuest) {
+      _showGuestDialog();
+      return;
+    }
+
     HapticFeedback.mediumImpact();
     setState(() => _diyaAnimating = true);
     Future.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) setState(() { _diyaLit = true; _diyaAnimating = false; });
+      if (mounted) {
+        setState(() { _diyaLit = true; _diyaAnimating = false; });
+        DiyaService.lightDiya();
+      }
     });
+  }
+
+
+  void _showGuestDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            image: const DecorationImage(
+              image: AssetImage('assets/stir_popup_background.png'), // same background
+              fit: BoxFit.cover,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.35),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Emoji
+                  const Text('🪔', style: TextStyle(fontSize: 52)),
+                  const SizedBox(height: 16),
+
+                  // Title
+                  const Text(
+                    'Light Your Diya Daily.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A1A2E),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Subtitle
+                  Text(
+                    'Every flame is an act of devotion.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Question
+                  const Text(
+                    'Would you like to begin your seva journey?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A2E),
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Primary button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        // TODO: navigate to signup screen
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE8A020),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        elevation: 6,
+                        shadowColor: const Color(0xFFE8A020).withValues(alpha: 0.5),
+                      ),
+                      child: const Text(
+                        'Create Free Account',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Secondary button
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: TextButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.6),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        elevation: 4,
+                        shadowColor: Colors.black.withValues(alpha: 0.15),
+                      ),
+                      child: const Text(
+                        'Maybe later',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF444444),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -234,6 +377,7 @@ class _DarshanScreenState extends State<DarshanScreen>
                         glowAnim: _diyaGlowAnim,
                         onLightDiya: _lightDiya,
                         tomorrowHook: _tomorrowHook,
+                        isGuest: _isGuest,
                       ),
                     ],
                   ),
@@ -807,6 +951,7 @@ class _DiyaScreen extends StatelessWidget {
   final Animation<double> glowAnim;
   final VoidCallback onLightDiya;
   final String tomorrowHook;
+  final bool isGuest;
 
 
   const _DiyaScreen({
@@ -815,6 +960,7 @@ class _DiyaScreen extends StatelessWidget {
     required this.glowAnim,
     required this.onLightDiya,
     required this.tomorrowHook,
+    this.isGuest = false,
   });
 
   @override

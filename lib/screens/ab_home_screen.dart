@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/screens/root_nav.dart';
+import '../main.dart';
 import '../model/mood_data.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
@@ -12,16 +15,16 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 // AFTER
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onGoToChat;
-  const HomeScreen({super.key, this.onGoToChat});
+  final VoidCallback? onGoToDarshan;
+  const HomeScreen({super.key, this.onGoToChat,this.onGoToDarshan,});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
 
   int? _selectedMood;
-
   // Sloka state
   String _slokaDeity = '';
   String _slokaDevanagari = '';
@@ -34,12 +37,18 @@ class _HomeScreenState extends State<HomeScreen> {
   String _teaserDarshan = '';
   String _timezone = '';
 
+  int _lifetimeDiyas = 0;
+  List<bool> _weekDiyas = List.filled(7, false); // Sun to Sat
+  bool _diyaStatsLoading = true;
+  String _preferredName = 'Sishya';
+  bool _isGuest = false;
+
 
   @override
   void initState() {
     super.initState();
     _initData();
-
+    _loadUserDisplayName();
   }
 
   Future<void> _initData() async {
@@ -47,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _timezone = timezoneInfo.identifier;
     _fetchSloka();
     _fetchDarshan();
+    fetchDiyaStats();
   }
 
   Future<void> _fetchSloka() async {
@@ -98,21 +108,81 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  final List<Color> _moodColors = [
-    const Color(0xFFC0392B),
-    const Color(0xFFE67E22),
-    const Color(0xFFF1C40F),
-    const Color(0xFF27AE60),
-    const Color(0xFFE91E63),
-  ];
 
-  final List<Color> _moodBgColors = [
-    const Color(0xFFFDECEA),
-    const Color(0xFFFEF3E2),
-    const Color(0xFFFEFDE7),
-    const Color(0xFFEAFAF1),
-    const Color(0xFFFCE4EC),
-  ];
+  Future<void> fetchDiyaStats() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
+    // Current week ke Sun-Sat dates nikalo
+    final now = DateTime.now();
+    // Sunday = 0 in dart weekday (weekday 7 = Sunday, so adjust)
+    final todayWeekday = now.weekday == 7 ? 0 : now.weekday; // 0=Sun, 1=Mon...6=Sat
+    final sunday = now.subtract(Duration(days: todayWeekday));
+
+    List<bool> weekStatus = List.filled(7, false);
+
+    for (int i = 0; i < 7; i++) {
+      final day = sunday.add(Duration(days: i));
+      final dateKey = "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('diyaLogs')
+          .doc(dateKey)
+          .get();
+      weekStatus[i] = snap.exists;
+    }
+
+    // Lifetime count
+    final userSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+    final lifetime = (userSnap.data()?['totalDiyasLit'] as num?)?.toInt() ?? 0;
+
+    if (mounted) {
+      setState(() {
+        _weekDiyas = weekStatus;
+        _lifetimeDiyas = lifetime;
+        _diyaStatsLoading = false;
+      });
+    }
+  }
+
+
+  Future<void> _loadUserDisplayName() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    // Guest = anonymous or not signed in
+    if (user == null || user.isAnonymous) {
+      setState(() {
+        _isGuest = true;
+        _preferredName = 'Sishya';
+      });
+      return;
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final name = doc.data()?['preferredName'] as String?;
+
+      setState(() {
+        _preferredName = (name != null && name.trim().isNotEmpty)
+            ? name.trim()
+            : 'Sishya';
+      });
+    } catch (e) {
+      // Fallback gracefully on error
+      setState(() {
+        _preferredName = 'Sishya';
+      });
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -120,11 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final cs = theme.colorScheme;
 
     return AppLayout(
-      title: 'Namaste, Sishya',
-      // backgroundVideo: 'assets/home-background.mp4',
-      // backgroundVideoOpacity: 0.5, // adjust 0.0–1.0 to dim if needed
-
-      // backgroundImage: 'assets/home-background.gif',
+      title: 'Namaste, $_preferredName',
       backgroundImage: 'assets/home-background.jpg',
       backgroundOpacity: 0.6,
 
@@ -167,516 +233,520 @@ class _HomeScreenState extends State<HomeScreen> {
               title: Text('Sign out', style: TextStyle(color: cs.error)),
               onTap: () {
                 Navigator.pop(context);
-                // TODO: sign-out / navigate to login
+                showSignOutConfirmDialog(
+                  context,
+                  onConfirm: performSignOutActions,
+                );
               },
             ),
           ],
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          // padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          padding: const EdgeInsets.only(left: 20, right: 20, top: 0, bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(
-                'A new day, a new beginning.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.onSurface.withValues(alpha: 0.60),
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFFF0),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 3,
-                      offset: const Offset(0, 1),
+        child: RefreshIndicator(
+            onRefresh: () async {
+              await Future.wait([
+                fetchDiyaStats(),
+              ]);
+            },
+            child: SingleChildScrollView(
+              // padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              padding: const EdgeInsets.only(left: 20, right: 20, top: 0, bottom: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    'A new day, a new beginning.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.onSurface.withValues(alpha: 0.60),
                     ),
-                  ],
-                  image: DecorationImage(
-                    image: AssetImage('assets/stir_background.png'), // or NetworkImage('https://...')
-                    fit: BoxFit.cover, // cover, contain, fill, fitWidth, fitHeight, none
+                    textAlign: TextAlign.center,
                   ),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'What stirs within you today?',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: AppColors.onSurface,
-                        fontWeight: FontWeight.w500,
+                  const SizedBox(height: 24),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFFF0),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 3,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                      image: DecorationImage(
+                        image: AssetImage('assets/stir_background.png'), // or NetworkImage('https://...')
+                        fit: BoxFit.cover, // cover, contain, fill, fitWidth, fitHeight, none
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    child: Column(
                       children: [
-                        _buildMoodButton(context, '😔', 0),
-                        _buildMoodButton(context, '😕', 1),
-                        _buildMoodButton(context, '😐', 2),
-                        _buildMoodButton(context, '🙂', 3),
-                        _buildMoodButton(context, '😄', 4),
+                        Text(
+                          'What stirs within you today?',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: AppColors.onSurface,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _buildMoodButton(context, '😔', 0),
+                            _buildMoodButton(context, '😕', 1),
+                            _buildMoodButton(context, '😐', 2),
+                            _buildMoodButton(context, '🙂', 3),
+                            _buildMoodButton(context, '😄', 4),
+                          ],
+                        ),
                       ],
                     ),
-                  ],
-                ),
-              ),
+                  ),
 
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: cs.primary,
-                      blurRadius: 3,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    children: [
-                      // Background image — fills entire container
-                      Positioned.fill(
-                        child: Image.asset(
-                          'assets/home-page-container1-image.jpg',
-                          fit: BoxFit.cover,
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: cs.primary,
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
                         ),
-                      ),
-                      Positioned.fill(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              colors: [
-                                cs.primary.withValues(alpha: 0.00),
-                                cs.primary.withValues(alpha: 1.00),
-                              ],
-                              center: Alignment(0.75, 0.2),
-                              radius: 1.2,
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Stack(
+                        children: [
+                          // Background image — fills entire container
+                          Positioned.fill(
+                            child: Image.asset(
+                              'assets/home-page-container1-image.jpg',
+                              fit: BoxFit.cover,
                             ),
                           ),
-                        ),
-                      ),
-
-                      // Foreground content
-                      Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 5,
-                              ),
+                          Positioned.fill(
+                            child: Container(
                               decoration: BoxDecoration(
-                                color: AppColors.accent.withValues(alpha: 0.15),
-                                border: Border.all(
-                                  color: AppColors.accent.withValues(
-                                    alpha: 0.45,
-                                  ),
-                                  width: 1,
+                                gradient: RadialGradient(
+                                  colors: [
+                                    cs.primary.withValues(alpha: 0.00),
+                                    cs.primary.withValues(alpha: 1.00),
+                                  ],
+                                  center: Alignment(0.75, 0.2),
+                                  radius: 1.2,
                                 ),
-                                borderRadius: BorderRadius.circular(20),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    '✨',
-                                    style: TextStyle(fontSize: 20),
+                            ),
+                          ),
+
+                          // Foreground content
+                          Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 5,
                                   ),
-                                  const SizedBox(width: 5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accent.withValues(alpha: 0.15),
+                                    border: Border.all(
+                                      color: AppColors.accent.withValues(
+                                        alpha: 0.45,
+                                      ),
+                                      width: 1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        '✨',
+                                        style: TextStyle(fontSize: 20),
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        "Today's Darshan",
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+
+                                Text(
+                                  _titleDarshan,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    color: AppColors.accent,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _teaserDarshan,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: Colors.white
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                ElevatedButton(
+                                  onPressed: () => widget.onGoToDarshan?.call(),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.accent,
+                                    foregroundColor: AppColors.onAccent,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 18,
+                                      vertical: 18,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  child: const Text(
+                                    'Begin Darshan',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(15),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.brown,
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                      image: DecorationImage(
+                          image: AssetImage('assets/diya_tracker_background.png'),
+                          fit: BoxFit.cover
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Top row: heading + lifetime diyas ──
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Left
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 12),
                                   Text(
-                                    "Today's Darshan",
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w500,
+                                    'Your Seva This Week',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Every day you show up, your light grows.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: AppColors.onSurface,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 10),
 
-                            Text(
-                            _titleDarshan,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                color: AppColors.accent,
+                            // Right – Lifetime Diyas badge (stacked label + big number)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 10,
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _teaserDarshan,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.white
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFFBF2).withValues(alpha: 0.4),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFC5A059).withValues(alpha: 0.4),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 20),
-                            ElevatedButton(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const DarshanScreen(),
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.accent,
-                                foregroundColor: AppColors.onAccent,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 18,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: const Text(
-                                'Begin Darshan',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    'Lifetime',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w500,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Image.asset(
+                                        'assets/diya-lit.png',
+                                        width: 50,
+                                        height: 50,
+                                        fit: BoxFit.contain,
+                                      ),
+                                      const SizedBox(width: 25),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 0),
+                                        child: Text(
+                                          _diyaStatsLoading ? '...' : '$_lifetimeDiyas',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            fontSize: 40,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.accent,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+
+                                  const SizedBox(width: 15),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
 
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.brown,
-                      blurRadius: 3,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
-                  image: DecorationImage(
-                    image: AssetImage('assets/diya_tracker_background.png'),
-                    fit: BoxFit.cover
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ── Top row: heading + lifetime diyas ──
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Left
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 12),
-                              Text(
-                                'Your Seva This Week',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  color: AppColors.primary,
-                                ),
+                        const SizedBox(height: 20),
+
+                        // ── 7-day diya row ──
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            ...['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                                .asMap()
+                                .entries
+                                .map((e) => _buildDiyaDay(context, e.value, _weekDiyas[e.key]))
+                                .toList(),
+                          ],
+                        ),
+
+                        const SizedBox(height: 6),
+
+                        Divider(
+                          thickness: 0.8,
+                          color: AppColors.outline.withValues(alpha: 0.5),
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        // ── Bottom message ──
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.favorite_outline,
+                              size: 14,
+                              color: AppColors.accent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Every diya is a step closer to the divine.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.onSurface.withValues(alpha: 0.70),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Every day you show up, your light grows.',
-                                style: theme.textTheme.bodySmall?.copyWith(
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      // Use the brand surface colour (warm ivory-white)
+                      color: AppColors.surface,
+                      border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.20),
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // ── Top label row ──
+                        Row(
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: AppColors.accent,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Daily Shloka',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            VerticalDivider(
+                              width: 1,
+                              thickness: 1,
+                              color: AppColors.outline,
+                            ),
+
+                            //  Pushes the pill to the far right
+                            const Spacer(),
+
+                            if (_slokaLoading)
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
                                   color: AppColors.onSurface,
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Right – Lifetime Diyas badge (stacked label + big number)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFFBF2).withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFFC5A059).withValues(alpha: 0.4),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Lifetime',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w500,
-                                  color: AppColors.accent,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Image.asset(
-                                    'assets/diya-lit.png',
-                                    width: 50,
-                                    height: 50,
-                                    fit: BoxFit.contain,
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                decoration: BoxDecoration(
+                                  //  Dark border matching your theme
+                                  border: Border.all(
+                                    color: const Color(0xFF8F0929),
+                                    width: 1,
                                   ),
-                                  const SizedBox(width: 25),
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 0),
-                                    child: Text(
-                                      '27',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        fontSize: 40,
-                                        fontWeight: FontWeight.w800,
-                                        color: AppColors.accent,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(maxWidth: 80),
+                                      child: Text(
+                                        _slokaDeity,
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                            fontSize: 15,
+                                            color: const Color(0xFFD4860A),
+                                            fontWeight: FontWeight.w600
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-
-
-                              const SizedBox(width: 15),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // ── 7-day diya row ──
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildDiyaDay(context, 'Sun', true),
-                        _buildDiyaDay(context, 'Mon', true),
-                        _buildDiyaDay(context, 'Tue', true),
-                        _buildDiyaDay(context, 'Wed', true),
-                        _buildDiyaDay(context, 'Thu', false),
-                        _buildDiyaDay(context, 'Fri', false),
-                        _buildDiyaDay(context, 'Sat', false),
-                      ],
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    Divider(
-                      thickness: 0.8,
-                      color: AppColors.outline.withValues(alpha: 0.5),
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    // ── Bottom message ──
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.favorite_outline,
-                          size: 14,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Every diya is a step closer to the divine.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.onSurface.withValues(alpha: 0.70),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  // Use the brand surface colour (warm ivory-white)
-                  color: AppColors.surface,
-                  border: Border.all(
-                    color: AppColors.accent.withValues(alpha: 0.20),
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // ── Top label row ──
-                    Row(
-                      children: [
-                        Container(
-                          width: 4,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: AppColors.accent,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Daily Shloka',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        VerticalDivider(
-                          width: 1,
-                          thickness: 1,
-                          color: AppColors.outline,
-                        ),
-
-                        //  Pushes the pill to the far right
-                        const Spacer(),
-
-                        if (_slokaLoading)
-                          SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.5,
-                              color: AppColors.onSurface,
-                            ),
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                            decoration: BoxDecoration(
-                              //  Dark border matching your theme
-                              border: Border.all(
-                                color: const Color(0xFF8F0929),
-                                width: 1,
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ConstrainedBox(
-                                  constraints: const BoxConstraints(maxWidth: 80),
-                                  child: Text(
-                                    _slokaDeity,
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontSize: 15,
-                                      color: const Color(0xFFD4860A),
-                                      fontWeight: FontWeight.w600
+                                    const SizedBox(width: 6),
+                                    //  Replace with your own PNG
+                                    Image.asset(
+                                      'assets/om_icon.png',
+                                      width: 24,
+                                      height: 24,
                                     ),
-                                  ),
+                                  ],
                                 ),
-                                const SizedBox(width: 6),
-                                //  Replace with your own PNG
-                                Image.asset(
-                                  'assets/om_icon.png',
-                                  width: 24,
-                                  height: 24,
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ── Sanskrit shloka ──
-                    Text(
-                      _slokaDevanagari,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
-                        height: 1.6,
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // ── Transliteration ──
-                    Text(
-                      _slokaRoman,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: AppColors.accent,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+                              ),
+                          ],
                         ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          child: Text(
-                            'ॐ',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Color(0xFF2A265F).withValues(alpha: 1.0),
-                            ),
+
+                        const SizedBox(height: 16),
+
+                        // ── Sanskrit shloka ──
+                        Text(
+                          _slokaDevanagari,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                            height: 1.6,
                           ),
                         ),
-                        Expanded(
-                          child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+
+                        const SizedBox(height: 12),
+
+                        // ── Transliteration ──
+                        Text(
+                          _slokaRoman,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppColors.accent,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                              child: Text(
+                                'ॐ',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Color(0xFF2A265F).withValues(alpha: 1.0),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+                            ),
+                          ],
+                        ),
+
+
+                        const SizedBox(height: 14),
+
+                        // ── Meaning ──
+                        Text(
+                          _slokaMeaning,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppColors.onBackground.withValues(alpha: 0.80),
+                          ),
                         ),
                       ],
                     ),
-
-
-                    const SizedBox(height: 14),
-
-                    // ── Meaning ──
-                    Text(
-                      _slokaMeaning,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: AppColors.onBackground.withValues(alpha: 0.80),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+
+        )
       ),
     );
   }
