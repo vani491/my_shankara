@@ -1,10 +1,10 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import 'ba_create_account.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
 
 class GuestInterstitialPage extends StatefulWidget {
   final VoidCallback? onSignup;
@@ -87,7 +87,6 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
                   help: 'Sign up for unlimited guidance.',
                 ),
 
-
                 const SizedBox(height: 32),
                 InkWell(
                   onTap: () => setState(() => _confirmAge = !_confirmAge),
@@ -126,14 +125,15 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
                     onPressed: canContinue ? _signInAnonymouslyAndGo : null,
                     child: _loading
                         ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor:
-                        AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
                         : const Text('Continue as Guest'),
                   ),
                 ),
@@ -148,7 +148,9 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
                       // print('guest button pressed');
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => CreateAccountScreen()),
+                        MaterialPageRoute(
+                          builder: (context) => CreateAccountScreen(),
+                        ),
                       );
                     },
                     child: Text('Start 30-day Free Trial'),
@@ -167,13 +169,13 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
     try {
       await FirebaseAuth.instance.signInAnonymously();
       if (!mounted) return;
-      // context.go('/');
+          context.go('/');
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign-in failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sign-in failed: $e')));
       }
     }
   }
@@ -273,7 +275,8 @@ class _TermsAndPrivacyText extends StatelessWidget {
               ),
           ),
         ],
-      ), textScaler: TextScaler.linear(1.0),
+      ),
+      textScaler: TextScaler.linear(1.0),
     );
   }
 }

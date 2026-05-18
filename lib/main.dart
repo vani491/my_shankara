@@ -79,38 +79,46 @@ class AppState extends ChangeNotifier {
 
   Future<void> checkProfileComplete() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        _isProfileComplete = doc.exists && doc.data()?['fullName'] != null;
-      } catch (e) {
-        _isProfileComplete = false;
-      }
+    if (user == null) return;
+
+    if (user.isAnonymous) {
+      _isProfileComplete = true;
       notifyListeners();
+      return;
     }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      _isProfileComplete = doc.exists && doc.data()?['fullName'] != null;
+    } catch (e) {
+      _isProfileComplete = false;
+    }
+    notifyListeners();
   }
 
   Future<void> loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
+    if (user == null) return;
 
-        if (doc.exists) {
-          _userData = doc.data();
-          _preferredName = _userData?['preferredName'];
-          _fullName = _userData?['fullName'];
-          notifyListeners();
-        }
-      } catch (e) {
-        print('Error loading user data: $e');
+
+    if (user.isAnonymous) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (doc.exists) {
+        _userData = doc.data();
+        _preferredName = _userData?['preferredName'];
+        _fullName = _userData?['fullName'];
+        notifyListeners();
       }
+    } catch (e) {
+      print('Error loading user data: $e');
     }
   }
 
@@ -207,7 +215,7 @@ class _MyAppState extends State<MyApp> {
       }
 
       // Already authenticated users shouldn't access login/onboarding
-      if (isAuthed && (goingToLogin || goingToOnboarding)) {
+      if (isAuthed && !isAnonymous && (goingToLogin || goingToOnboarding)){
         return '/';
       }
 

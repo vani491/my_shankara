@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/theme/app_theme.dart';
@@ -67,38 +68,6 @@ class _ChatbotPageState extends State<ChatbotPage> {
   }
 
   /// Shows a dialog with the exact time the limit resets (next midnight).
-  void _showLimitReachedDialog1() {
-    final now = DateTime.now();
-    // Reset always happens at the next calendar day (midnight local time).
-    final resetAt = DateTime(now.year, now.month, now.day + 1); // 00:00 next day
-    final resetLabel = DateFormat('d MMM, hh:mm a').format(resetAt); // e.g. "29 Mar, 12:00 AM"
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Daily Limit Reached'),
-        content: Text(
-          'You’ve used all $_kGuestDailyLimit messages for today. Come back tomorrow for more - or continue your journey without limits.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Maybe Later'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => CreateAccountScreen()),
-              );
-            },
-            child: const Text('Sign Up'),
-          ),
-        ],
-      ),
-    );
-  }
   void _showLimitReachedDialog() {
     showDialog(
       context: context,
@@ -138,11 +107,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
                   child: FilledButton(
                     onPressed: () {
                       Navigator.pop(ctx);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => CreateAccountScreen()),
-                      );
+                      context.go('/login');
                     },
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -802,7 +767,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
             if (_isGuest) _GuestLimitBanner(
               usedToday: _guestMessagesUsed,
               onSignUp: () {
-                // TODO: navigate to sign-up screen
+                context.go('/login');
               },
             ),
 

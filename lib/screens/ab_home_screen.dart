@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/screens/root_nav.dart';
 import '../main.dart';
@@ -567,20 +568,39 @@ class HomeScreenState extends State<HomeScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(
-                              Icons.favorite_outline,
-                              size: 14,
-                              color: AppColors.accent,
-                            ),
+
                             const SizedBox(width: 6),
-                            Text(
-                              'Every diya is a step closer to the divine.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.onSurface.withValues(alpha: 0.70),
+
+                            if (_isGuest)
+                              ElevatedButton.icon(
+                                onPressed: () => context.go('/login'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.accent,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(50),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                label: Text(
+                                  'Sign up to track your seva',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                              )
+                            else
+                              Text(
+                                'Every diya is a step closer to the divine.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.onSurface.withValues(alpha: 0.70),
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ],

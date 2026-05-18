@@ -268,20 +268,22 @@ class _DarshanScreenState extends State<DarshanScreen>
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        // TODO: navigate to signup screen
+                        context.go('/login');
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE8A020),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(50),
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: AppColors.onAccent,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 18,
                         ),
-                        elevation: 6,
-                        shadowColor: const Color(0xFFE8A020).withValues(alpha: 0.5),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        elevation: 0,
                       ),
                       child: const Text(
-                        'Create Free Account',
+                        'Sign up to track seva',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -295,12 +297,22 @@ class _DarshanScreenState extends State<DarshanScreen>
                   SizedBox(
                     width: double.infinity,
                     child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
+                      onPressed: ()
+                      {
+                        Navigator.pop(ctx);
+                        HapticFeedback.mediumImpact();
+                        setState(() => _diyaAnimating = true);
+                        Future.delayed(const Duration(milliseconds: 600), () {
+                          if (mounted) {
+                            setState(() { _diyaLit = true; _diyaAnimating = false; });
+                          }
+                        });
+                      },
                       style: TextButton.styleFrom(
                         backgroundColor: Colors.white.withValues(alpha: 0.6),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(50),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         elevation: 4,
                         shadowColor: Colors.black.withValues(alpha: 0.15),
