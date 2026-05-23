@@ -9,7 +9,6 @@ import '../main.dart';
 import '../model/mood_data.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
-import 'package:lottie/lottie.dart';
 import 'ac_darshan_screen.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 
@@ -610,7 +609,7 @@ class HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(15),
                     decoration: BoxDecoration(
                       // Use the brand surface colour (warm ivory-white)
                       color: AppColors.surface,
@@ -661,7 +660,7 @@ class HomeScreenState extends State<HomeScreen> {
                               )
                             else
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                 decoration: BoxDecoration(
                                   //  Dark border matching your theme
                                   border: Border.all(
@@ -674,7 +673,7 @@ class HomeScreenState extends State<HomeScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     ConstrainedBox(
-                                      constraints: const BoxConstraints(maxWidth: 80),
+                                      constraints: const BoxConstraints(maxWidth: 100),
                                       child: Text(
                                         _slokaDeity,
                                         overflow: TextOverflow.ellipsis,
@@ -686,7 +685,7 @@ class HomeScreenState extends State<HomeScreen> {
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 6),
+                                    const SizedBox(width: 3),
                                     //  Replace with your own PNG
                                     Image.asset(
                                       'assets/om_icon.png',

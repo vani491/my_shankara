@@ -17,7 +17,7 @@ class RootNav extends StatefulWidget {
 
 class _RootNavState extends State<RootNav> {
   late int _index;
-
+  final _homeKey = GlobalKey<HomeScreenState>();
   @override
   void initState() {
     super.initState();
@@ -40,11 +40,15 @@ class _RootNavState extends State<RootNav> {
   Widget build(BuildContext context) {
     final List<Widget> pages = <Widget>[
       HomeScreen(
+        key: _homeKey,
         onGoToChat: () => setState(() => _index = 2),
         onGoToDarshan: () => setState(() => _index = 1),
       ),
       DarshanScreen(
         onGoHome: () => setState(() => _index = 0),
+        onDarshanComplete: () {
+          _homeKey.currentState?.fetchDiyaStats();  // ← this is the key line
+        },
       ),
       const ChatbotPage(),
     ];

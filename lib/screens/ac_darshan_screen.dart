@@ -178,7 +178,6 @@ class _DarshanScreenState extends State<DarshanScreen>
 
   void _lightDiya() {
     if (_diyaLit) return;
-
     // Guest user check
     if (_isGuest) {
       _showGuestDialog();
@@ -187,10 +186,12 @@ class _DarshanScreenState extends State<DarshanScreen>
 
     HapticFeedback.mediumImpact();
     setState(() => _diyaAnimating = true);
-    Future.delayed(const Duration(milliseconds: 600), () {
+    Future.delayed(const Duration(milliseconds: 600), () async {
       if (mounted) {
         setState(() { _diyaLit = true; _diyaAnimating = false; });
-        DiyaService.lightDiya();
+        //DiyaService.lightDiya();
+        await DiyaService.lightDiya();          // ← await it
+        widget.onDarshanComplete?.call();
       }
     });
   }

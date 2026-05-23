@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
 class AppLayout extends StatefulWidget {
   final String title;
@@ -36,71 +35,25 @@ class AppLayout extends StatefulWidget {
 }
 
 class _AppLayoutState extends State<AppLayout> {
-  VideoPlayerController? _videoController;
-
   @override
   void initState() {
     super.initState();
-    if (widget.backgroundVideo != null) {
-      _initVideo(widget.backgroundVideo!);
-    }
   }
 
   @override
   void didUpdateWidget(AppLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Re-initialise if the video asset path changed
-    if (widget.backgroundVideo != oldWidget.backgroundVideo) {
-      _videoController?.dispose();
-      _videoController = null;
-      if (widget.backgroundVideo != null) {
-        _initVideo(widget.backgroundVideo!);
-      }
-    }
   }
 
-  Future<void> _initVideo(String assetPath) async {
-    final controller = VideoPlayerController.asset(assetPath);
-    _videoController = controller;
-
-    await controller.initialize();
-    controller.setLooping(true);
-    controller.setVolume(0); // muted — background ambience
-    controller.play();
-
-    if (mounted) setState(() {});
-  }
 
   @override
   void dispose() {
-    _videoController?.dispose();
     super.dispose();
   }
 
   // ── Background layer ───────────────────────────────────────────────────────
 
   Widget _buildBackground() {
-    // 1. Video background
-    if (widget.backgroundVideo != null) {
-      final ctrl = _videoController;
-      if (ctrl != null && ctrl.value.isInitialized) {
-        return Opacity(
-          opacity: widget.backgroundVideoOpacity,
-          child: SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: ctrl.value.size.width,
-                height: ctrl.value.size.height,
-                child: VideoPlayer(ctrl),
-              ),
-            ),
-          ),
-        );
-      }
-      // Show nothing (transparent) while the video is loading
-      return const SizedBox.shrink();
-    }
 
     // 2. Static image background (legacy)
     if (widget.backgroundImage != null) {

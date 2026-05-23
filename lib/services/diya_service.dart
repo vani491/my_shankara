@@ -18,7 +18,7 @@ class DiyaService {
 
     final logSnap = await logRef.get();
     if (!logSnap.exists) {
-      // Pehli baar aaj diya jala
+      // Diya lit today
       await logRef.set({
         'lit': true,
         'timestamp': FieldValue.serverTimestamp(),
