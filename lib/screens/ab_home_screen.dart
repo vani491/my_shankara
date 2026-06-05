@@ -195,55 +195,92 @@ class HomeScreenState extends State<HomeScreen> {
       backgroundOpacity: 0.6,
 
       drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
+        backgroundColor: AppColors.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.only(
+            topRight: Radius.circular(28),
+            bottomRight: Radius.circular(28),
+          ),
+        ),
+        child: Column(
           children: [
             _buildDrawerHeader(context),
+            const SizedBox(height: 12),
 
-            const SizedBox(height: 8),
+            // ── Nav items ──
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  _drawerItem(
+                    context,
+                    icon: Icons.person_outline,
+                    label: 'Profile',
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await context.push('/profile');
+                      await _loadUserDisplayName();
+                    },
+                  ),
+                  _drawerItem(
+                    context,
+                    icon: Icons.settings_outlined,
+                    label: 'Settings',
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.push('/settings');
+                    },
+                  ),
+                  _drawerItem(
+                    context,
+                    icon: Icons.description_outlined,
+                    label: 'Terms & Conditions',
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.push('/privacy-terms');
+                    },
+                  ),
+                  _drawerItem(
+                    context,
+                    icon: Icons.info_outline,
+                    label: 'About',
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.push('/about');
+                    },
+                  ),
+                ],
+              ),
+            ),
 
-            ListTile(
-              leading: Icon(Icons.person_outline, color: cs.primary),
-              title: const Text('Profile'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: Icon(Icons.favorite_outline, color: cs.primary),
-              title: const Text('Manage Subscription'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: Icon(Icons.settings_outlined, color: cs.primary),
-              title: const Text('Settings'),
-              onTap: () => Navigator.pop(context),
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.info_outline, color: cs.primary),
-              title: const Text('About'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: Icon(Icons.help_outline, color: cs.primary),
-              title: const Text('Help & Support'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: Icon(Icons.logout, color: cs.error),
-              title: Text('Sign out', style: TextStyle(color: cs.error)),
-              onTap: () {
-                Navigator.pop(context);
-                showSignOutConfirmDialog(
-                  context,
-                  onConfirm: performSignOutActions,
-                );
-              },
+            // ── Sign out pinned at bottom ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+              child: Column(
+                children: [
+                  Divider(color: AppColors.outline.withValues(alpha: 0.3)),
+                  const SizedBox(height: 8),
+                  _drawerItem(
+                    context,
+                    icon: Icons.logout,
+                    label: 'Sign out',
+                    isDestructive: true,
+                    onTap: () {
+                      Navigator.pop(context);
+                      showSignOutConfirmDialog(
+                        context,
+                        onConfirm: performSignOutActions,
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
       body: SafeArea(
-        child: RefreshIndicator(
+          child: RefreshIndicator(
             onRefresh: () async {
               await Future.wait([
                 fetchDiyaStats(),
@@ -765,7 +802,7 @@ class HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-        )
+          )
       ),
     );
   }
@@ -785,46 +822,113 @@ class HomeScreenState extends State<HomeScreen> {
   Widget _buildDrawerHeader(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(16.0),
-      color: theme.colorScheme.primary.withValues(alpha: 0.08),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary,
+            AppColors.primary.withValues(alpha: 0.85),
+          ],
+        ),
+        borderRadius: const BorderRadius.only(
+          bottomRight: Radius.circular(28),
+        ),
+      ),
       child: SafeArea(
         bottom: false,
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const CircleAvatar(
-              radius: 32,
-              backgroundImage: AssetImage('assets/user-profile.webp'),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Shivani S.',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 20,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: const ButtonStyle(
-                      padding: WidgetStatePropertyAll(EdgeInsets.zero),
-                      minimumSize: WidgetStatePropertyAll(Size(0, 0)),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      'Edit Profile',
-                      style: TextStyle(color: AppColors.accent),
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 8),
+            // Avatar with gold ring
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.accent, width: 2.5),
+              ),
+              child: const CircleAvatar(
+                radius: 34,
+                backgroundImage: AssetImage('assets/ic_user_profile.jpeg'),
               ),
             ),
+            const SizedBox(height: 14),
+
+            Row(
+              children: [
+                Icon(
+                  Icons.person,
+                  color: AppColors.accent,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _preferredName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 24,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ── Themed drawer item (rounded, tap highlight) ────────────────────────────
+  Widget _drawerItem(
+      BuildContext context, {
+        required IconData icon,
+        required String label,
+        required VoidCallback onTap,
+        bool isDestructive = false,
+      }) {
+    final theme = Theme.of(context);
+    final color = isDestructive ? theme.colorScheme.error : AppColors.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: isDestructive
+            ? theme.colorScheme.error.withValues(alpha: 0.06)
+            : AppColors.primary.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(icon, color: color, size: 22),
+                const SizedBox(width: 16),
+                Text(
+                  label,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+                const Spacer(),
+                if (!isDestructive)
+                  Icon(
+                    Icons.chevron_right,
+                    color: AppColors.onSurface.withValues(alpha: 0.3),
+                    size: 20,
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );

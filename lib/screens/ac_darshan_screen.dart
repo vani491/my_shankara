@@ -1082,6 +1082,7 @@ class _DiyaScreen extends StatelessWidget {
                         style: theme.textTheme.bodyLarge?.copyWith(
                           color: const Color(0xFF5B2D08),
                           fontWeight: FontWeight.w700,
+                          fontSize: 16
                         ),
                       ),
                       const SizedBox(height: 10),

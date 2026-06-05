@@ -8,8 +8,8 @@ import '../main.dart';
 
 class ProfileBasicsPage extends StatefulWidget {
   final AppState? appState; // ← ADD THIS
-
-  const ProfileBasicsPage({super.key, this.appState}); // ← MODIFY THIS
+  final bool isEditMode;
+  const ProfileBasicsPage({super.key, this.appState,  this.isEditMode = false,});
 
   @override
   State<ProfileBasicsPage> createState() => _ProfileBasicsPageState();
@@ -47,6 +47,51 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
   String? _ageGateError;
   Gender? _selectedGender;
   bool _isSaving = false;
+  bool _isLoading = false;
+
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isEditMode) {
+      _loadExistingProfile();
+    }
+  }
+
+  Future<void> _loadExistingProfile() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final data = doc.data();
+      if (data != null) {
+        _nameCtrl.text = (data['fullName'] ?? '').toString();
+        _preferredNameCtrl.text = (data['preferredName'] ?? '').toString();
+        _yearOfBirthCtrl.text = (data['yearOfBirth'] ?? '').toString();
+
+        // gender string ko enum me wapas map karo
+        final genderStr = (data['gender'] ?? '').toString();
+        _selectedGender = Gender.values
+            .where((g) => g.name == genderStr)
+            .cast<Gender?>()
+            .firstOrNull;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load profile: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -99,180 +144,205 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-
-    return Scaffold(
-      backgroundColor: cs.surface,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        // leading: const BackButton(),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => deleteUnverifiedAccount(),
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: cs.surface,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+      return Scaffold(
+        backgroundColor: cs.surface,
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          // leading: const BackButton(),
+          leading: widget.isEditMode
+              ? IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
+          )
+              : IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => deleteUnverifiedAccount(),
+          ),
+          title: Text(
+            widget.isEditMode ? 'Edit Profile' : 'About You',
+            style: theme.textTheme.titleLarge,
+          ),
+          centerTitle: true,
         ),
-        title: Text('About You', style: theme.textTheme.titleLarge),
-        centerTitle: true,
-      ),
 
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: IntrinsicHeight(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 34),
-                  Text(
-                    'This helps MyShankara to serve you better.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 24),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 34),
+                    Text(
+                      'This helps MyShankara to serve you better.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 24),
 
-                  Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Full name*', style: theme.textTheme.titleSmall),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _nameCtrl,
-                          textInputAction: TextInputAction.next,
-                          decoration: _decorate('Enter your full name'),
-                          // Used 'Enter your full name' as the hint
-                          validator: (v) {
-                            if (v == null || v.trim().isEmpty) {
-                              return 'Please enter your name';
-                            }
-                            if (v.trim().length < 2) return 'Name is too short';
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        Text(
-                          'Preferred name',
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _preferredNameCtrl,
-                          textInputAction: TextInputAction.next,
-                          decoration: _decorate('Preferred name'),
-                          validator: (v) {
-                            if (v == null || v.trim().isEmpty) {
-                              return 'Please enter preferred name';
-                            }
-                            if (v.trim().length < 2) return 'Name is too short';
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Gender*', style: theme.textTheme.titleSmall),
-                            const SizedBox(height: 8), // Spacing
-                            Wrap(
-                              // The radio buttons
-                              spacing: 10,
-                              crossAxisAlignment: WrapCrossAlignment.start,
-                              children: [
-                                _genderRadio(
-                                  context,
-                                  label: 'Male',
-                                  value: Gender.male,
-                                ),
-                                _genderRadio(
-                                  context,
-                                  label: 'Female',
-                                  value: Gender.female,
-                                ),
-                                _genderRadio(
-                                  context,
-                                  label: 'Prefer not to say',
-                                  value: Gender.other,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        Text(
-                          'Year of birth*',
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: TextFormField(
-                            controller: _yearOfBirthCtrl,
-                            readOnly: true,
-                            decoration: _decorate(
-                              'e.g. 1980',
-                              suffix: const Icon(Icons.calendar_month),
-                            ).copyWith(errorText: _ageGateError),
-                            onTap: _pickYear,
+                    Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Full name*', style: theme.textTheme.titleSmall),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _nameCtrl,
+                            textInputAction: TextInputAction.next,
+                            decoration: _decorate('Enter your full name'),
+                            // Used 'Enter your full name' as the hint
                             validator: (v) {
-                              if (v == null || v.isEmpty) {
-                                return 'Please select your birth year';
+                              if (v == null || v
+                                  .trim()
+                                  .isEmpty) {
+                                return 'Please enter your name';
                               }
-                              final y = int.tryParse(v);
-                              final nowYear = DateTime.now().year;
-                              if (y == null || y < 1900 || y > nowYear) {
-                                return 'Enter a valid year';
-                              }
-                              // This check can be kept as a secondary guardrail,
-                              // but the picker should prevent it now.
-                              if (nowYear - y < 18) {
-                                return 'You must be at least 18 years old to create an account';
-                              }
+                              if (v
+                                  .trim()
+                                  .length < 2) return 'Name is too short';
                               return null;
                             },
                           ),
-                        ),
-                        Text(
-                          'MyShankara is for seekers 18+',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[700],
-                          ),
-                        ),
+                          const SizedBox(height: 16),
 
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: _isSaving ? null : _saveProfileBasics,
-                            child: _isSaving
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text('Begin your journey'),
+                          Text(
+                            'Preferred name',
+                            style: theme.textTheme.titleSmall,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _preferredNameCtrl,
+                            textInputAction: TextInputAction.next,
+                            decoration: _decorate('Preferred name'),
+                            validator: (v) {
+                              if (v == null || v
+                                  .trim()
+                                  .isEmpty) {
+                                return 'Please enter preferred name';
+                              }
+                              if (v
+                                  .trim()
+                                  .length < 2) return 'Name is too short';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  'Gender*', style: theme.textTheme.titleSmall),
+                              const SizedBox(height: 8), // Spacing
+                              Wrap(
+                                // The radio buttons
+                                spacing: 10,
+                                crossAxisAlignment: WrapCrossAlignment.start,
+                                children: [
+                                  _genderRadio(
+                                    context,
+                                    label: 'Male',
+                                    value: Gender.male,
+                                  ),
+                                  _genderRadio(
+                                    context,
+                                    label: 'Female',
+                                    value: Gender.female,
+                                  ),
+                                  _genderRadio(
+                                    context,
+                                    label: 'Prefer not to say',
+                                    value: Gender.other,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+
+                          Text(
+                            'Year of birth*',
+                            style: theme.textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextFormField(
+                              controller: _yearOfBirthCtrl,
+                              readOnly: true,
+                              decoration: _decorate(
+                                'e.g. 1980',
+                                suffix: const Icon(Icons.calendar_month),
+                              ).copyWith(errorText: _ageGateError),
+                              onTap: _pickYear,
+                              validator: (v) {
+                                if (v == null || v.isEmpty) {
+                                  return 'Please select your birth year';
+                                }
+                                final y = int.tryParse(v);
+                                final nowYear = DateTime
+                                    .now()
+                                    .year;
+                                if (y == null || y < 1900 || y > nowYear) {
+                                  return 'Enter a valid year';
+                                }
+                                // This check can be kept as a secondary guardrail,
+                                // but the picker should prevent it now.
+                                if (nowYear - y < 18) {
+                                  return 'You must be at least 18 years old to create an account';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          Text(
+                            'MyShankara is for seekers 18+',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: Colors.grey[700],
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: _isSaving ? null : _saveProfileBasics,
+                              child: _isSaving
+                                  ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                                  : Text(widget.isEditMode ? 'Update' : 'Begin your journey'),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
 
-                  // Add extra spacing to avoid cropping on small screens
-                  const SizedBox(height: 24),
-                ],
+                    // Add extra spacing to avoid cropping on small screens
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
+
   }
 
   InputDecoration _decorate(String hint, {Widget? suffix}) {
@@ -431,29 +501,45 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
       final String birthYear = _yearOfBirthCtrl.text;
       final int age = DateTime.now().year - (int.tryParse(birthYear) ?? 0);
 
+      // Common fields (dono modes me update hote hain)
       final Map<String, dynamic> userData = {
         'fullName': _nameCtrl.text.trim(),
         'preferredName': _preferredNameCtrl.text.trim(),
         'gender': _selectedGender?.name,
         'yearOfBirth': int.tryParse(birthYear),
         'age': age,
-        'createdAt': FieldValue.serverTimestamp(),
-        'totalDiyasLit': 0,
-        'lastLitDate': '',
       };
+
+      // Onboarding-only fields — sirf naye profile me, edit me chhede bina
+      if (!widget.isEditMode) {
+        userData['createdAt'] = FieldValue.serverTimestamp();
+        userData['totalDiyasLit'] = 0;
+        userData['lastLitDate'] = '';
+      }
 
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .set(userData, SetOptions(merge: true));
       await Future.delayed(const Duration(milliseconds: 300));
+
       if (mounted) {
         await widget.appState?.checkProfileComplete();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile saved successfully!')),
+          SnackBar(
+            content: Text(
+              widget.isEditMode
+                  ? 'Profile updated successfully!'
+                  : 'Profile saved successfully!',
+            ),
+          ),
         );
         if (mounted) {
-          context.go('/');
+          if (widget.isEditMode) {
+            Navigator.of(context).pop();
+          } else {
+            context.go('/');
+          }
         }
       }
     } catch (e) {

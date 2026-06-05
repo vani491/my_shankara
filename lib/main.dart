@@ -4,13 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'services/notification_service.dart';
 
 import 'dart:async';
 // chandni changes
 // import 'firebase_options.dart';
 import 'screens/root_nav.dart';
 import 'screens/theme_demo_page.dart';
-import 'screens/edit_profile_screen.dart';
 import 'setting_pages/settings_notifications.dart';
 import 'screens/support.dart';
 
@@ -147,6 +147,20 @@ Future<void> main() async {
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   await Firebase.initializeApp();
+
+  // Init notifications + re-apply saved schedule
+  await NotificationService.instance.init();
+  final prefs = await SharedPreferences.getInstance();
+  final notifEnabled = prefs.getBool('notifications_enabled') ?? false;
+  if (notifEnabled) {
+    final hour = prefs.getInt('notif_hour') ?? 7;
+    final minute = prefs.getInt('notif_minute') ?? 0;
+    await NotificationService.instance.scheduleWeekly(
+      hour: hour,
+      minute: minute,
+    );
+  }
+
   final appState = AppState();
   await appState.attachAuth();
   await appState.loadOnboardingFlag();
@@ -246,7 +260,17 @@ class _MyAppState extends State<MyApp> {
       ),
       GoRoute(
         path: '/edit-profile',
-        builder: (_, __) => const EditProfileScreen(),
+        builder: (_, __) => ProfileBasicsPage(
+          appState: widget.appState,
+          isEditMode: true,
+        ),
+      ),
+      GoRoute(
+        path: '/profile',
+        builder: (_, __) => ProfileBasicsPage(
+          appState: widget.appState,
+          isEditMode: true,
+        ),
       ),
       GoRoute(
         path: '/profile-basics',
@@ -297,9 +321,9 @@ Future<void> performSignOutActions() async {
 }
 
 Future<void> showSignOutConfirmDialog(
-  BuildContext context, {
-  Future<void> Function()? onConfirm,
-}) async {
+    BuildContext context, {
+      Future<void> Function()? onConfirm,
+    }) async {
   bool isSigningOut = false;
 
   await showDialog<void>(
@@ -322,10 +346,10 @@ Future<void> showSignOutConfirmDialog(
               ElevatedButton.icon(
                 icon: isSigningOut
                     ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
                     : const Icon(Icons.logout),
                 label: Text(isSigningOut ? 'Signing out…' : 'Sign out'),
                 style: ElevatedButton.styleFrom(
@@ -338,29 +362,29 @@ Future<void> showSignOutConfirmDialog(
                 onPressed: isSigningOut
                     ? null
                     : () async {
-                        setState(() => isSigningOut = true);
-                        try {
-                          if (onConfirm != null) {
-                            await onConfirm();
-                          } else {
-                            await performSignOutActions();
-                          }
-                          if (context.mounted) {
-                            context.go('/login');
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Sign out failed: $e')),
-                            );
-                          }
-                        } finally {
-                          if (ctx.mounted) setState(() => isSigningOut = false);
-                          if (Navigator.of(ctx).canPop()) {
-                            Navigator.of(ctx).pop();
-                          }
-                        }
-                      },
+                  setState(() => isSigningOut = true);
+                  try {
+                    if (onConfirm != null) {
+                      await onConfirm();
+                    } else {
+                      await performSignOutActions();
+                    }
+                    if (context.mounted) {
+                      context.go('/login');
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Sign out failed: $e')),
+                      );
+                    }
+                  } finally {
+                    if (ctx.mounted) setState(() => isSigningOut = false);
+                    if (Navigator.of(ctx).canPop()) {
+                      Navigator.of(ctx).pop();
+                    }
+                  }
+                },
               ),
             ],
           );
@@ -397,122 +421,85 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width >= 900;
     final selected = _selectedIndexFromLocation(context);
-    final theme = Theme.of(context);
 
     final loc = GoRouterState.of(context).uri.toString();
     final isChatPage = loc == '/' || loc.startsWith('/?');
 
+    // Logged-in user ka naam (preferred > full > fallback)
+    final displayName = 'Seeker';
+
+  /*  final displayName = widget.appState.preferredName ??
+        widget.appState.fullName ??
+        'Seeker';*/
+
+    // Ek item kholne ka helper: drawer band karo, phir route pe jao.
+    void openRoute(String path) {
+      Navigator.of(context).pop(); // drawer band
+      context.push(path);
+    }
+
     final navList = ListView(
       padding: const EdgeInsets.symmetric(vertical: 2),
       children: [
-        SizedBox(
-          height: 160,
-
-          child: DrawerHeader(
-            margin: EdgeInsets.zero,
-            padding: EdgeInsets.zero,
+        // ---- HEADER: sirf avatar + naam (koi click nahi) ----
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(16)),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      CircleAvatar(
-                        radius: 32,
-                        backgroundImage: AssetImage('assets/user-profile.webp'),
-                      ),
-                      SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Shivani S.',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 22,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                                context.push('/edit-profile');
-                              },
-                              style: const ButtonStyle(
-                                padding: WidgetStatePropertyAll(
-                                  EdgeInsets.zero,
-                                ),
-                                minimumSize: WidgetStatePropertyAll(
-                                  Size(0, 0),
-                                ),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: const Text('Edit Profile'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    radius: 32,
+                    backgroundImage: AssetImage('assets/user-profile.webp'),
                   ),
-                ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 22,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
 
         const SizedBox(height: 8),
+
+        // ---- NAVIGATION ITEMS ----
         ListTile(
-          leading: const Icon(Icons.favorite_outline),
-          title: const Text('Manage Subscription'),
-          onTap: () {
-            Navigator.of(context).pop();
-            context.push('/manage-subscription');
-          },
+          leading: const Icon(Icons.person_outline),
+          title: const Text('Profile'),
+          onTap: () => openRoute('/profile'),
         ),
         ListTile(
           leading: const Icon(Icons.settings_outlined),
           title: const Text('Settings'),
-          onTap: () {
-            Navigator.of(context).pop();
-            context.push('/settings');
-          },
+          onTap: () => openRoute('/settings'),
         ),
-        const SizedBox(height: 100),
-        const Divider(),
-
+        ListTile(
+          leading: const Icon(Icons.description_outlined),
+          title: const Text('Terms & Conditions'),
+          onTap: () => openRoute('/privacy-terms'),
+        ),
         ListTile(
           leading: const Icon(Icons.info_outline),
           title: const Text('About'),
-          onTap: () {
-            Navigator.of(context).pop();
-            context.push('/about');
-          },
+          onTap: () => openRoute('/about'),
         ),
-        ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: const Text('Privacy & Terms'),
-          onTap: () {
-            Navigator.of(context).pop();
-            context.push('/privacy-terms');
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.help_outline),
-          title: const Text('Help & Support'),
-          onTap: () {
-            Navigator.of(context).pop();
-            context.push('/support');
-          },
-        ),
+
+        const Divider(),
+
         ListTile(
           leading: const Icon(Icons.logout),
           title: const Text('Sign out'),
@@ -526,7 +513,6 @@ class _AppShellState extends State<AppShell> {
       ],
     );
 
-    final canPop = GoRouter.of(context).canPop();
     return Scaffold(
       key: _scaffoldKey,
       appBar: isChatPage ? null : AppBar(
