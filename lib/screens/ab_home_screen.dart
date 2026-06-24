@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/screens/root_nav.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../app_drawer.dart';
 import '../main.dart';
 import '../model/mood_data.dart';
+import '../services/notification_service.dart';
+import '../services/user_name_cache.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
-import 'ac_darshan_screen.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 
 // AFTER
@@ -40,7 +43,7 @@ class HomeScreenState extends State<HomeScreen> {
   int _lifetimeDiyas = 0;
   List<bool> _weekDiyas = List.filled(7, false); // Sun to Sat
   bool _diyaStatsLoading = true;
-  String _preferredName = 'Sishya';
+  String _preferredName = UserNameCache.value;
   bool _isGuest = false;
 
 
@@ -49,8 +52,92 @@ class HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initData();
     _loadUserDisplayName();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeRunFirstNotificationPrompt();
+    });
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadUserDisplayName();
+  }
+
+  Future<void> _maybeRunFirstNotificationPrompt() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('notif_first_prompt_done') ?? false) return;
+    await prefs.setBool('notif_first_prompt_done', true);
+
+    // Notification permission maango
+    final granted = await NotificationService.instance.requestPermissions();
+    if (!granted) return; // mana kiya → kuch nahi
+
+    // Notification permission mil gayi — ab exact-alarm permission check karo.
+    final canExact = await NotificationService.instance.canScheduleExactAlarms();
+    if (canExact) {
+      await NotificationService.instance.enableDefaultDailyReminder();
+    } else {
+      if (mounted) await _showExactAlarmDialog();
+    }
+  }
+
+  Future<void> _showExactAlarmDialog() async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        title: const Text(
+          'Allow reminders',
+          textAlign: TextAlign.center,
+        ),
+        content: Text(
+          'To deliver your daily reflection on time, MyShankara needs permission to schedule alarms & reminders.',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(
+              'Not now',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 15,
+                vertical: 2,
+              ),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+
+              await NotificationService.instance.requestExactAlarmPermission();
+
+              final ok =
+                  await NotificationService.instance.canScheduleExactAlarms();
+
+              if (ok) {
+                await NotificationService.instance.enableDefaultDailyReminder();
+              }
+            },
+            child: const Text(
+              'Allow',
+              style: TextStyle(color: AppColors.primary, fontSize: 15),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Future<void> _initData() async {
     final timezoneInfo = await FlutterTimezone.getLocalTimezone();
     _timezone = timezoneInfo.identifier;
@@ -149,40 +236,17 @@ class HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
-  Future<void> _loadUserDisplayName() async {
-    final user = FirebaseAuth.instance.currentUser;
-
-    // Guest = anonymous or not signed in
-    if (user == null || user.isAnonymous) {
-      setState(() {
-        _isGuest = true;
-        _preferredName = 'Sishya';
-      });
-      return;
-    }
-
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-
-      final name = doc.data()?['preferredName'] as String?;
-
-      setState(() {
-        _preferredName = (name != null && name.trim().isNotEmpty)
-            ? name.trim()
-            : 'Sishya';
-      });
-    } catch (e) {
-      // Fallback gracefully on error
-      setState(() {
-        _preferredName = 'Sishya';
-      });
-    }
+  // This method s called from outside the screen to refresh the name
+  void refreshDisplayName() {
+    _loadUserDisplayName();
   }
 
+  Future<void> _loadUserDisplayName() async {
+    final resolved = await UserNameCache.refresh();
+    if (mounted && _preferredName != resolved) {
+      setState(() => _preferredName = resolved);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -194,91 +258,7 @@ class HomeScreenState extends State<HomeScreen> {
       backgroundImage: 'assets/home-background.jpg',
       backgroundOpacity: 0.6,
 
-      drawer: Drawer(
-        backgroundColor: AppColors.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.only(
-            topRight: Radius.circular(28),
-            bottomRight: Radius.circular(28),
-          ),
-        ),
-        child: Column(
-          children: [
-            _buildDrawerHeader(context),
-            const SizedBox(height: 12),
-
-            // ── Nav items ──
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: [
-                  _drawerItem(
-                    context,
-                    icon: Icons.person_outline,
-                    label: 'Profile',
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await context.push('/profile');
-                      await _loadUserDisplayName();
-                    },
-                  ),
-                  _drawerItem(
-                    context,
-                    icon: Icons.settings_outlined,
-                    label: 'Settings',
-                    onTap: () {
-                      Navigator.pop(context);
-                      context.push('/settings');
-                    },
-                  ),
-                  _drawerItem(
-                    context,
-                    icon: Icons.description_outlined,
-                    label: 'Terms & Conditions',
-                    onTap: () {
-                      Navigator.pop(context);
-                      context.push('/privacy-terms');
-                    },
-                  ),
-                  _drawerItem(
-                    context,
-                    icon: Icons.info_outline,
-                    label: 'About',
-                    onTap: () {
-                      Navigator.pop(context);
-                      context.push('/about');
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Sign out pinned at bottom ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-              child: Column(
-                children: [
-                  Divider(color: AppColors.outline.withValues(alpha: 0.3)),
-                  const SizedBox(height: 8),
-                  _drawerItem(
-                    context,
-                    icon: Icons.logout,
-                    label: 'Sign out',
-                    isDestructive: true,
-                    onTap: () {
-                      Navigator.pop(context);
-                      showSignOutConfirmDialog(
-                        context,
-                        onConfirm: performSignOutActions,
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      drawer: AppDrawer(onProfileUpdated: refreshDisplayName),
       body: SafeArea(
           child: RefreshIndicator(
             onRefresh: () async {
@@ -816,121 +796,6 @@ class HomeScreenState extends State<HomeScreen> {
     return GestureDetector(
       onTap: () => _showMoodDialog(context, index),
       child: Text(emoji, style: const TextStyle(fontSize: 28)),
-    );
-  }
-
-  Widget _buildDrawerHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primary,
-            AppColors.primary.withValues(alpha: 0.85),
-          ],
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomRight: Radius.circular(28),
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
-            // Avatar with gold ring
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.accent, width: 2.5),
-              ),
-              child: const CircleAvatar(
-                radius: 34,
-                backgroundImage: AssetImage('assets/ic_user_profile.jpeg'),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            Row(
-              children: [
-                Icon(
-                  Icons.person,
-                  color: AppColors.accent,
-                  size: 22,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _preferredName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 24,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Themed drawer item (rounded, tap highlight) ────────────────────────────
-  Widget _drawerItem(
-      BuildContext context, {
-        required IconData icon,
-        required String label,
-        required VoidCallback onTap,
-        bool isDestructive = false,
-      }) {
-    final theme = Theme.of(context);
-    final color = isDestructive ? theme.colorScheme.error : AppColors.primary;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Material(
-        color: isDestructive
-            ? theme.colorScheme.error.withValues(alpha: 0.06)
-            : AppColors.primary.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Icon(icon, color: color, size: 22),
-                const SizedBox(width: 16),
-                Text(
-                  label,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-                const Spacer(),
-                if (!isDestructive)
-                  Icon(
-                    Icons.chevron_right,
-                    color: AppColors.onSurface.withValues(alpha: 0.3),
-                    size: 20,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 

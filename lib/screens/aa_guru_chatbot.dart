@@ -3,15 +3,18 @@ import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/theme/app_theme.dart';
+import '../app_drawer.dart';
 import '../main.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
+
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../onboarding_flow/ba_create_account.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/access_service.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
 
@@ -404,6 +407,15 @@ class _ChatbotPageState extends State<ChatbotPage> {
       }
     }
 
+    // Trial / subscription check (signed-in users)
+    if (!_isGuest) {
+      final allowed = await AccessService.hasAccess();
+      if (!allowed) {
+        if (mounted) context.push('/guru-dakshina');
+        return;
+      }
+    }
+
     final isFirstMessage = _messages.length == 1;
     final userMsg = _Msg(role: Role.user, text: text, ts: DateTime.now());
 
@@ -690,62 +702,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
       title: "Guru Chat",
       backgroundImage: 'assets/guruchatbg.png',
       backgroundOpacity: 0.40,
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            // ── Drawer header: different for guest vs signed-in ──────────────
-            if (_isGuest) _buildGuestDrawerHeader(context) else _buildUserDrawerHeader(context),
-
-            const SizedBox(height: 8),
-
-            // Menu items visible to everyone
-            if (!_isGuest) ...[
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text('Profile'),
-                onTap: () {
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.favorite_outline),
-                title: const Text('Manage Subscription'),
-                onTap: () {
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('Settings'),
-                onTap: () {
-                  Navigator.pop(context);
-                },
-              ),
-              const Divider(),
-            ],
-
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('About'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.help_outline),
-              title: const Text('Help & Support'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: Text(_isGuest ? 'Back to Sign In' : 'Sign out'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: sign-out / navigate to login
-              },
-            ),
-          ],
-        ),
-      ),
+      drawer: const AppDrawer(),
       actions: [
         // History button only for signed-in users
         if (!_isGuest)
@@ -871,114 +828,6 @@ class _ChatbotPageState extends State<ChatbotPage> {
     );
   }
 
-  // ── Drawer header builders ─────────────────────────────────────────────────
-
-  Widget _buildGuestDrawerHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      color: theme.colorScheme.primary.withOpacity(0.1),
-      child: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor:
-                  theme.colorScheme.primary.withOpacity(0.2),
-                  child: Icon(Icons.person_outline,
-                      size: 36, color: theme.colorScheme.primary),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Guest',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 20),
-                      ),
-                      const SizedBox(height: 6),
-                      FilledButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => CreateAccountScreen()),
-                          );
-                        },
-                        icon: const Icon(Icons.star_outline, size: 16),
-                        label: const Text('--- Sign Up ---'),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          textStyle: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUserDrawerHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      color: theme.colorScheme.primary.withOpacity(0.1),
-      child: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const CircleAvatar(
-                  radius: 32,
-                  backgroundImage: AssetImage('assets/user-profile.webp'),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Shivani S.',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 20),
-                      ),
-                      const SizedBox(height: 4),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: const ButtonStyle(
-                          padding:
-                          WidgetStatePropertyAll(EdgeInsets.zero),
-                          minimumSize:
-                          WidgetStatePropertyAll(Size(0, 0)),
-                          tapTargetSize:
-                          MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text('Edit Profile'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ─── Guest limit banner ────────────────────────────────────────────────────────

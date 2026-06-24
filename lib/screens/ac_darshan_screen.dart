@@ -8,6 +8,7 @@ import '../theme/colors.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:go_router/go_router.dart';
 import '../services/diya_service.dart';
+import '../services/access_service.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // DAILY DARSHAN — 4-SCREEN GUIDED EXPERIENCE
 // Screens: Story → Interpretation → Reflection + Blessing → Diya + Next Day
@@ -176,11 +177,18 @@ class _DarshanScreenState extends State<DarshanScreen>
     }
   }
 
-  void _lightDiya() {
+  Future<void> _lightDiya() async {
     if (_diyaLit) return;
     // Guest user check
     if (_isGuest) {
       _showGuestDialog();
+      return;
+    }
+
+    // Trial / subscription check
+    final allowed = await AccessService.hasAccess();
+    if (!allowed) {
+      if (mounted) context.push('/guru-dakshina');
       return;
     }
 
@@ -388,7 +396,7 @@ class _DarshanScreenState extends State<DarshanScreen>
                         diyaLit: _diyaLit,
                         diyaAnimating: _diyaAnimating,
                         glowAnim: _diyaGlowAnim,
-                        onLightDiya: _lightDiya,
+                        onLightDiya: () { _lightDiya(); },
                         tomorrowHook: _tomorrowHook,
                         isGuest: _isGuest,
                       ),
@@ -681,7 +689,7 @@ class _StoryScreen extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 14),
               child: Text(
                 story,
-                textAlign: TextAlign.center,
+                textAlign: TextAlign.left,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: AppColors.onBackground,
                   height: 1.6,
@@ -998,30 +1006,12 @@ class _DiyaScreen extends StatelessWidget {
                     : 'assets/diya-darsan-unlit.png',
                 key: ValueKey(diyaLit),
                 width: double.infinity,
-                height: 200,
+                height: 220,
                 fit: BoxFit.cover,
               ),
             ),
           ),
           const SizedBox(height: 10),
-          // Small act note
-           Row(
-             mainAxisSize: MainAxisSize.min,
-             crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                 Text(
-                    'This small act creates lasting light.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: AppColors.onBackground,
-                      fontWeight: FontWeight.w200,
-                      fontSize: 13
-                    ),
-                  ),
-              ],
-            ),
-
-
-          const SizedBox(height: 20),
 
           // Light Diya button — accent, consistent with all CTAs
           SizedBox(
@@ -1048,7 +1038,7 @@ class _DiyaScreen extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 15),
           // "See you tomorrow" card
           _ContentCard(
             padding: EdgeInsets.zero,
@@ -1066,7 +1056,7 @@ class _DiyaScreen extends StatelessWidget {
                 ),
                 //  Content on top
                 Padding(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(10),
                   child: Column(
                     children: [
                       Image.asset(
@@ -1082,16 +1072,16 @@ class _DiyaScreen extends StatelessWidget {
                         style: theme.textTheme.bodyLarge?.copyWith(
                           color: const Color(0xFF5B2D08),
                           fontWeight: FontWeight.w700,
-                          fontSize: 16
+                          fontSize: 20
                         ),
                       ),
                       const SizedBox(height: 10),
                       Text(
                         tomorrowHook.isNotEmpty ? tomorrowHook : 'The Journey Continues',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF834819),
-                          fontWeight: FontWeight.w600,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: AppColors.onBackground,
+                          height: 1.6,
                         ),
                       ),
                     ],
@@ -1100,9 +1090,6 @@ class _DiyaScreen extends StatelessWidget {
               ],
             ),
           ),
-
-
-
 
         ],
       ),
@@ -1185,13 +1172,7 @@ class _DarshanCTA extends StatelessWidget {
               fontSize: 12,
             ),
           )
-              : Text(
-            'Return to Home',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: AppColors.onSurface.withValues(alpha: 0.45),
-              fontSize: 12,
-            ),
-          ),
+              :  const SizedBox.shrink(),
         ],
       ),
     );

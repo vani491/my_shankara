@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
   NotificationService._();
@@ -42,7 +43,7 @@ class NotificationService {
 
     tzdata.initializeTimeZones();
     final deviceTz = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(deviceTz.identifier));
+    tz.setLocalLocation(tz.getLocation(deviceTz as String));
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings(
@@ -87,6 +88,20 @@ class NotificationService {
         await androidImpl?.requestNotificationsPermission() ?? true;
 
     return iosGranted && androidGranted;
+  }
+
+
+
+
+
+  Future<bool> areNotificationsEnabled() async {
+    final androidImpl = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl != null) {
+      return await androidImpl.areNotificationsEnabled() ?? true;
+    }
+    // iOS: requestPermissions returns current status without re-prompting much;
+    // treat null as enabled to avoid false negatives.
+    return true;
   }
 
   /// Requests exact-alarm permission once per session, then returns the best
@@ -134,6 +149,8 @@ class NotificationService {
     required int minute,
   }) async {
     await cancelAll();
+    // Timezone fix bhi yahan check karo
+    debugPrint('[Notif] tz.local = ${tz.local.name}');
     final mode = await _resolveScheduleMode();
 
     for (final entry in _messages.entries) {
@@ -186,4 +203,32 @@ class NotificationService {
     }
     return scheduled;
   }
+
+
+  // Exact-alarm permission allowed hai ya nahi (Android 12+)
+  Future<bool> canScheduleExactAlarms() async {
+    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+    AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImpl != null) {
+      return await androidImpl.canScheduleExactNotifications() ?? true;
+    }
+    return true; // iOS: no exact-alarm concept
+  }
+
+  // Exact-alarm settings screen kholta hai (user wahaan se allow karega)
+  Future<void> requestExactAlarmPermission() async {
+    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+    AndroidFlutterLocalNotificationsPlugin>();
+    await androidImpl?.requestExactAlarmsPermission();
+  }
+
+  // Default 7 AM pe daily reminder on karo + prefs me save karo
+  Future<void> enableDefaultDailyReminder() async {
+    await scheduleWeekly(hour: 7, minute: 0);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notifications_enabled', true);
+    await prefs.setInt('notif_hour', 7);
+    await prefs.setInt('notif_minute', 0);
+  }
+
 }

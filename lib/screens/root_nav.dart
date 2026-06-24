@@ -69,7 +69,12 @@ class _RootNavState extends State<RootNav> {
           child: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _index,
-            onTap: (i) => setState(() => _index = i),
+            onTap: (i) {
+              setState(() => _index = i);
+              if (i == 0) {
+                _homeKey.currentState?.refreshDisplayName();
+              }
+            },
             selectedItemColor: accent,
             unselectedItemColor: Colors.white,
             items: [

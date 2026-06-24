@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 // import 'package:flutter_signin_button/flutter_signin_button.dart';
 
 import '../services/auth_service.dart';
@@ -189,66 +190,6 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
     }
   }
 
-  void _onAppleSignUp() {}
-
-  // Future<void> _onCreateAccount() async {
-  //   if (!_formKey.currentState!.validate()) return;
-  //
-  //   setState(() => _loading = true);
-  //
-  //   try {
-  //     // Create user with email and password
-  //     final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-  //       email: _emailController.text.trim(),
-  //       password: _passwordController.text,
-  //     );
-  //
-  //     if (!mounted) return;
-  //
-  //     // Optionally send email verification
-  //     await userCredential.user?.sendEmailVerification();
-  //
-  //     // Navigate to verification screen or home
-  //     Navigator.pushReplacement(
-  //       context,
-  //       MaterialPageRoute(
-  //         builder: (context) => VerifyEmailScreen(
-  //           email: _emailController.text.trim(),
-  //           appState: context.findAncestorWidgetOfExactType<MyApp>()!.appState,
-  //         ),
-  //       ),
-  //     );
-  //
-  //   } on FirebaseAuthException catch (e) {
-  //     if (!mounted) return;
-  //
-  //     String message;
-  //     switch (e.code) {
-  //       case 'email-already-in-use':
-  //         message = 'An account already exists with this email';
-  //         break;
-  //       case 'weak-password':
-  //         message = 'Password is too weak';
-  //         break;
-  //       case 'invalid-email':
-  //         message = 'Invalid email address';
-  //         break;
-  //       default:
-  //         message = e.message ?? 'Sign-up failed';
-  //     }
-  //
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       SnackBar(content: Text(message)),
-  //     );
-  //   } catch (e) {
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       SnackBar(content: Text('Sign-up failed: $e')),
-  //     );
-  //   } finally {
-  //     if (mounted) setState(() => _loading = false);
-  //   }
-  // }
 
   // inside _ExistingUserLoginState
   Future<void> _onEmailLogin() async {
@@ -315,9 +256,8 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
   }
 
 
-  void _onTerms() {}
-
-  void _onPrivacy() {}
+  void _onTerms() => context.push('/terms-of-service');
+  void _onPrivacy() => context.push('/privacy-policy');
 
   String get userEmail => 'test@gmail.com';
 

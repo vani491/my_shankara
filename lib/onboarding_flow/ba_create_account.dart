@@ -300,8 +300,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     Navigator.pop(context);
   }
 
-  void _onTerms() {}
-  void _onPrivacy() {}
+  void _onTerms() => context.push('/terms-of-service');
+  void _onPrivacy() => context.push('/privacy-policy');
 
   String get userEmail => 'test@gmail.com';
 

@@ -27,6 +27,7 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
   bool _confirmAge = false;
   bool _loading = false;
 
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -238,6 +239,9 @@ class _TermsAndPrivacyText extends StatelessWidget {
     required this.privacyUrl,
   });
 
+  void _onTerms(BuildContext context) => context.push('/terms-of-service');
+  void _onPrivacy(BuildContext context) => context.push('/privacy-policy');
+
   @override
   Widget build(BuildContext context) {
     final style = Theme.of(context).textTheme.bodyMedium!;
@@ -259,20 +263,14 @@ class _TermsAndPrivacyText extends StatelessWidget {
             text: 'Terms of Service',
             style: linkStyle,
             recognizer: TapGestureRecognizer()
-              ..onTap = () => launchUrl(
-                Uri.parse(termsUrl),
-                mode: LaunchMode.externalApplication,
-              ),
+              ..onTap = () =>  _onTerms(context),
           ),
           const TextSpan(text: ' and '),
           TextSpan(
             text: 'Privacy Policy',
             style: linkStyle,
             recognizer: TapGestureRecognizer()
-              ..onTap = () => launchUrl(
-                Uri.parse(privacyUrl),
-                mode: LaunchMode.externalApplication,
-              ),
+              ..onTap = () => _onPrivacy(context),
           ),
         ],
       ),

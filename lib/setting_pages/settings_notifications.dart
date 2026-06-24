@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/notification_service.dart';
 import '../theme/colors.dart';
+import 'package:app_settings/app_settings.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 
 class SettingsNotificationsScreen extends StatefulWidget {
   final ValueChanged<ThemeMode>? onThemeModeChanged;
@@ -16,8 +18,6 @@ class SettingsNotificationsScreen extends StatefulWidget {
 
 class _SettingsNotificationsScreenState
     extends State<SettingsNotificationsScreen> {
-  // Appearance: 0 system, 1 light, 2 dark
-  int _appearance = 0;
 
   // Notifications
   bool _notifEnabled = false;
@@ -32,7 +32,6 @@ class _SettingsNotificationsScreenState
   Future<void> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
     setState(() {
-      _appearance = p.getInt(_Keys.themeMode) ?? 0;
       _notifEnabled = p.getBool(_Keys.notifEnabled) ?? false;
       final h = p.getInt(_Keys.notifHour);
       final m = p.getInt(_Keys.notifMinute);
@@ -42,56 +41,190 @@ class _SettingsNotificationsScreenState
     });
   }
 
-  Future<void> _saveAppearance(int value) async {
-    final p = await SharedPreferences.getInstance();
-    await p.setInt(_Keys.themeMode, value);
-    setState(() => _appearance = value);
-    widget.onThemeModeChanged?.call(_toThemeMode(value));
-  }
-
-  ThemeMode _toThemeMode(int v) {
-    switch (v) {
-      case 1:
-        return ThemeMode.light;
-      case 2:
-        return ThemeMode.dark;
-      default:
-        return ThemeMode.system;
-    }
-  }
-
   Future<void> _saveNotifEnabled(bool value) async {
     try {
-      final p = await SharedPreferences.getInstance();
       if (value) {
-        // Ask OS permission before enabling.
-        final granted =
-            await NotificationService.instance.requestPermissions();
-        if (!granted) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Notification permission denied. Enable it in system settings.',
-                ),
-              ),
-            );
-          }
+        _toast('Step 1: Requesting permissions...');
+        final granted = await NotificationService.instance.requestPermissions();
+        _toast('Step 1 result: granted=$granted');
+
+        final enabled = await NotificationService.instance.areNotificationsEnabled();
+        _toast('Step 2: areNotifEnabled=$enabled');
+
+        if (!granted || !enabled) {
+          _toast('BLOCKED: granted=$granted, enabled=$enabled');
+          if (mounted) _showBlockedDialog();
           return;
         }
+
+        _toast('Step 3: Calling scheduleWeekly...');
         await NotificationService.instance.scheduleWeekly(
           hour: _notifTime.hour,
           minute: _notifTime.minute,
         );
+        _toast('Step 3 done: scheduled!');
+
+        final p = await SharedPreferences.getInstance();
+        await p.setBool(_Keys.notifEnabled, true);
+        if (mounted) setState(() => _notifEnabled = true);
+        _toast('Step 4: COMPLETE ✓');
+
       } else {
         await NotificationService.instance.cancelAll();
+        final p = await SharedPreferences.getInstance();
+        await p.setBool(_Keys.notifEnabled, false);
+        if (mounted) setState(() => _notifEnabled = false);
+        _toast('Notifications OFF');
       }
-      await p.setBool(_Keys.notifEnabled, value);
-      setState(() => _notifEnabled = value);
-    } catch (e) {
-      debugPrint('ERROR: $e');
+    } catch (e, stack) {
+      _toast('ERROR: $e');
+      debugPrint('ERROR: $e\n$stack');
     }
   }
+
+  // Helper
+  void _toast(String msg) {
+    Fluttertoast.showToast(
+      msg: msg,
+      toastLength: Toast.LENGTH_LONG,
+      gravity: ToastGravity.TOP,
+      backgroundColor: Colors.black87,
+      textColor: Colors.white,
+      fontSize: 13.0,
+    );
+  }
+
+  void _showBlockedDialog() {
+    final cs = Theme.of(context).colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Notifications are turned off for MyShankara. Enable them in Settings to receive daily reminders.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Not now' ,  style: TextStyle(
+              color: Colors.grey,
+            ), ),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 2,
+              ),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              AppSettings.openAppSettings(
+                type: AppSettingsType.notification,
+              );
+            },
+            child: const Text('Open Settings',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontSize: 15
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showExactAlarmDialog() {
+    final cs = Theme.of(context).colorScheme;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        title: const Text(
+          'Allow reminders',
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+
+            Text(
+              'To deliver your daily reflection on time, MyShankara needs permission to schedule alarms & reminders.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Not now'  ,  style: TextStyle(
+              color: Colors.grey,
+            ), ),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 15,
+                vertical: 2,
+              ),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+
+              await NotificationService.instance.requestExactAlarmPermission();
+
+              final ok = await NotificationService.instance
+                  .canScheduleExactAlarms();
+
+              if (ok) {
+                await NotificationService.instance.scheduleWeekly(
+                  hour: _notifTime.hour,
+                  minute: _notifTime.minute,
+                );
+
+                final p = await SharedPreferences.getInstance();
+                await p.setBool(_Keys.notifEnabled, true);
+
+                if (mounted) {
+                  setState(() => _notifEnabled = true);
+                }
+              }
+            },
+            child: const Text('Allow',
+              style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 15
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Future<void> _pickNotifTime() async {
     final picked = await showTimePicker(
@@ -130,6 +263,7 @@ class _SettingsNotificationsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
@@ -139,7 +273,7 @@ class _SettingsNotificationsScreenState
         elevation: 0,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
-        title: const Text('Settings'),
+        title: Text('Settings', style: theme.textTheme.titleLarge,),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -197,7 +331,7 @@ class _SettingsNotificationsScreenState
                     // Toggle row
                     SwitchListTile.adaptive(
                       contentPadding:
-                          const EdgeInsets.fromLTRB(16, 10, 14, 10),
+                      const EdgeInsets.fromLTRB(16, 10, 14, 10),
                       value: _notifEnabled,
                       onChanged: _saveNotifEnabled,
                       secondary: Container(

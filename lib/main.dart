@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:myshankara/screens/guru_dakshina.dart';
+import 'package:myshankara/screens/share_darshan.dart';
+import 'package:myshankara/setting_pages/terms_of_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -17,7 +20,7 @@ import 'screens/support.dart';
 import 'screens/ba_about.dart';
 import 'onboarding_flow/aa_onboarding_choice.dart';
 import 'screens/welcome_slides.dart';
-import 'setting_pages/privacy_terms.dart';
+import 'setting_pages/privacy_policy.dart';
 import 'screens/manage_subscription.dart';
 import 'onboarding_flow/bb_verify_email_screen.dart';
 import 'screens/profile_basics.dart';
@@ -146,30 +149,63 @@ Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  await Firebase.initializeApp();
-
-  // Init notifications + re-apply saved schedule
-  await NotificationService.instance.init();
-  final prefs = await SharedPreferences.getInstance();
-  final notifEnabled = prefs.getBool('notifications_enabled') ?? false;
-  if (notifEnabled) {
-    final hour = prefs.getInt('notif_hour') ?? 7;
-    final minute = prefs.getInt('notif_minute') ?? 0;
-    await NotificationService.instance.scheduleWeekly(
-      hour: hour,
-      minute: minute,
-    );
-  }
-
   final appState = AppState();
-  await appState.attachAuth();
-  await appState.loadOnboardingFlag();
-  final initialUser = FirebaseAuth.instance.currentUser;
-  if (initialUser != null) {
-    await appState.checkProfileComplete();
+
+  try {
+    try {
+      await Firebase.initializeApp();
+    } catch (e, st) {
+      debugPrint('Firebase init failed (continuing anyway): $e\n$st');
+    }
+
+    try {
+      await appState.attachAuth().timeout(const Duration(seconds: 4));
+    } catch (e, st) {
+      debugPrint('attachAuth failed (continuing anyway): $e\n$st');
+    }
+
+    try {
+      await appState.loadOnboardingFlag().timeout(const Duration(seconds: 4));
+    } catch (e, st) {
+      debugPrint('loadOnboardingFlag failed (continuing anyway): $e\n$st');
+    }
+
+    final initialUser = FirebaseAuth.instance.currentUser;
+    if (initialUser != null) {
+      try {
+        await appState.checkProfileComplete().timeout(const Duration(seconds: 4));
+      } catch (e, st) {
+        debugPrint('checkProfileComplete failed (continuing anyway): $e\n$st');
+      }
+    }
+  } catch (e, st) {
+    debugPrint('Startup init error (continuing anyway): $e\n$st');
+  } finally {
+    FlutterNativeSplash.remove();
   }
-  FlutterNativeSplash.remove();
+
   runApp(MyApp(appState: appState));
+
+  // Non-blocking: notifications init + re-apply saved schedule, after UI is up.
+  _initNotificationsInBackground();
+}
+
+Future<void> _initNotificationsInBackground() async {
+  try {
+    await NotificationService.instance.init();
+    final prefs = await SharedPreferences.getInstance();
+    final notifEnabled = prefs.getBool('notifications_enabled') ?? false;
+    if (notifEnabled) {
+      final hour = prefs.getInt('notif_hour') ?? 7;
+      final minute = prefs.getInt('notif_minute') ?? 0;
+      await NotificationService.instance.scheduleWeekly(
+        hour: hour,
+        minute: minute,
+      );
+    }
+  } catch (e, st) {
+    debugPrint('Notification init failed (non-fatal): $e\n$st');
+  }
 }
 
 class MyApp extends StatefulWidget {
@@ -199,6 +235,10 @@ class _MyAppState extends State<MyApp> {
       final goingToOnboarding = currentPath == '/onboarding';
       final goingToProfileBasics = currentPath == '/profile-basics';
       final goingToVerifyEmail = currentPath == '/verify-email';
+
+      final isPublicLegalPage =
+          currentPath == '/privacy-policy' || currentPath == '/terms-of-service';
+      if (isPublicLegalPage) return null; // always allow, regardless of auth state
 
       // Onboarding check
       if (!isOnboarded && !goingToOnboarding) {
@@ -255,8 +295,12 @@ class _MyAppState extends State<MyApp> {
         builder: (_, __) => const ManageSubscriptionPage(),
       ),
       GoRoute(
-        path: '/privacy-terms',
-        builder: (_, __) => const PrivacyTermsPage(),
+        path: '/privacy-policy',
+        builder: (_, __) => const PrivacyPolicyPage(),
+      ),
+      GoRoute(
+        path: '/terms-of-service',
+        builder: (_, __) => const TermsOfServicePage(),
       ),
       GoRoute(
         path: '/edit-profile',
@@ -276,6 +320,8 @@ class _MyAppState extends State<MyApp> {
         path: '/profile-basics',
         builder: (_, __) => ProfileBasicsPage(appState: widget.appState),
       ),
+      GoRoute(path: '/guru-dakshina', builder: (_, __) => const GuruDakshinaPage()),
+      GoRoute(path: '/share-darshan', builder: (_, __) => const ShareDarshanPage()),
       GoRoute(
         path: '/verify-email',
         builder: (_, __) => VerifyEmailScreen(
@@ -283,11 +329,7 @@ class _MyAppState extends State<MyApp> {
           appState: widget.appState,
         ),
       ),
-      ShellRoute(
-        builder: (context, state, child) => AppShell(child: child),
-        routes: [GoRoute(path: '/', builder: (_, __) => const RootNav())],
-        // routes: [GoRoute(path: '/', builder: (_, __) => const ThemeDemoPage())],
-      ),
+      GoRoute(path: '/', builder: (_, __) => const RootNav()),
     ],
   );
 
@@ -304,14 +346,6 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
     );
   }
-}
-
-class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.child});
-  final Widget child;
-
-  @override
-  State<AppShell> createState() => _AppShellState();
 }
 
 Future<void> performSignOutActions() async {
@@ -392,164 +426,6 @@ Future<void> showSignOutConfirmDialog(
       );
     },
   );
-}
-
-class _AppShellState extends State<AppShell> {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  int _selectedIndexFromLocation(BuildContext context) {
-    final loc = GoRouterState.of(context).uri.toString();
-    if (loc.startsWith('/settings')) return 2;
-    if (loc.startsWith('/profile')) return 1;
-    return 0;
-  }
-
-  void _onDestinationSelected(BuildContext context, int index) {
-    switch (index) {
-      case 0:
-        context.go('/');
-        break;
-      case 1:
-        context.go('/profile');
-        break;
-      case 2:
-        context.go('/settings');
-        break;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width >= 900;
-    final selected = _selectedIndexFromLocation(context);
-
-    final loc = GoRouterState.of(context).uri.toString();
-    final isChatPage = loc == '/' || loc.startsWith('/?');
-
-    // Logged-in user ka naam (preferred > full > fallback)
-    final displayName = 'Seeker';
-
-  /*  final displayName = widget.appState.preferredName ??
-        widget.appState.fullName ??
-        'Seeker';*/
-
-    // Ek item kholne ka helper: drawer band karo, phir route pe jao.
-    void openRoute(String path) {
-      Navigator.of(context).pop(); // drawer band
-      context.push(path);
-    }
-
-    final navList = ListView(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      children: [
-        // ---- HEADER: sirf avatar + naam (koi click nahi) ----
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 32,
-                    backgroundImage: AssetImage('assets/user-profile.webp'),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 22,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 8),
-
-        // ---- NAVIGATION ITEMS ----
-        ListTile(
-          leading: const Icon(Icons.person_outline),
-          title: const Text('Profile'),
-          onTap: () => openRoute('/profile'),
-        ),
-        ListTile(
-          leading: const Icon(Icons.settings_outlined),
-          title: const Text('Settings'),
-          onTap: () => openRoute('/settings'),
-        ),
-        ListTile(
-          leading: const Icon(Icons.description_outlined),
-          title: const Text('Terms & Conditions'),
-          onTap: () => openRoute('/privacy-terms'),
-        ),
-        ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: const Text('About'),
-          onTap: () => openRoute('/about'),
-        ),
-
-        const Divider(),
-
-        ListTile(
-          leading: const Icon(Icons.logout),
-          title: const Text('Sign out'),
-          onTap: () async {
-            await showSignOutConfirmDialog(
-              context,
-              onConfirm: performSignOutActions,
-            );
-          },
-        ),
-      ],
-    );
-
-    return Scaffold(
-      key: _scaffoldKey,
-      appBar: isChatPage ? null : AppBar(
-        automaticallyImplyLeading: true,
-      ),
-      drawer: isWide ? null : Drawer(child: navList),
-      body: Row(
-        children: [
-          if (isWide)
-            NavigationRail(
-              selectedIndex: selected,
-              onDestinationSelected: (i) => _onDestinationSelected(context, i),
-              labelType: NavigationRailLabelType.all,
-              useIndicator: true,
-              destinations: const [
-                NavigationRailDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: Text('Home'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
-                  label: Text('Profile'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.settings_outlined),
-                  selectedIcon: Icon(Icons.settings),
-                  label: Text('Settings'),
-                ),
-              ],
-            ),
-          Expanded(child: widget.child),
-        ],
-      ),
-    );
-  }
 }
 
 class HomePage extends StatelessWidget {
