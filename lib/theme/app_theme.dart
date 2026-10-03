@@ -3,6 +3,14 @@ import 'package:flutter/material.dart';
 import 'colors.dart';
 
 class AppTheme {
+  // Shared by textTheme.titleLarge and appBarTheme.titleTextStyle so page
+  // titles and app bar titles can never drift out of sync.
+  static const TextStyle _pageTitleStyle = TextStyle(
+    color: AppColors.primary,
+    fontSize: 30,
+    fontWeight: FontWeight.w800,
+  );
+
   // Build a light ColorScheme based on AppColors, overriding key roles explicitly.
   static final ColorScheme _lightScheme = ColorScheme.fromSeed(
     seedColor: AppColors.primary,
@@ -76,7 +84,7 @@ class AppTheme {
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.accent,
-        foregroundColor: Colors.black,
+        foregroundColor: AppColors.onAccent,
         padding: const EdgeInsets.symmetric(vertical: 20),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
@@ -91,7 +99,7 @@ class AppTheme {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         backgroundColor: Colors.transparent,
-        foregroundColor: Colors.black,
+        foregroundColor: AppColors.onSurface,
         padding: const EdgeInsets.symmetric(vertical: 20),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
@@ -104,6 +112,32 @@ class AppTheme {
           color: AppColors.accent,
           width: 3,
         ),
+      ),
+    ),
+
+    // Shares FilledButton's shape/type scale so a screen that reaches for
+    // ElevatedButton instead of FilledButton doesn't drift in radius or
+    // font. Color-wise it stays a step quieter than FilledButton (surface
+    // background instead of accent) since call sites that want the loud
+    // accent look already use FilledButton or pass their own colors.
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.primary,
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ),
+
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.primary,
       ),
     ),
 
@@ -127,11 +161,7 @@ class AppTheme {
       ),
 
       // Titles (app bars, card titles, form titles, etc.)
-      titleLarge: const TextStyle(
-        color: AppColors.primary,
-        fontSize: 30,
-        fontWeight: FontWeight.w800,
-      ),
+      titleLarge: _pageTitleStyle,
       titleMedium: const TextStyle(
         color: AppColors.primary,
         fontSize: 26,
@@ -159,13 +189,23 @@ class AppTheme {
         height: 1.2,
       ),
       bodySmall: const TextStyle(
-          color: Colors.white
+          color: AppColors.onBackground
       ),
 
       // Labels (buttons, chips, tiny UI text)
       labelLarge: const TextStyle(),
       labelMedium: const TextStyle(),
       labelSmall: const TextStyle(),
+    ),
+
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: true,
+      foregroundColor: AppColors.onSurface,
+      titleTextStyle: _pageTitleStyle,
     ),
 
     extensions: [

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../theme/colors.dart';
 import 'ba_create_account.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -34,19 +35,12 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
     final cs = theme.colorScheme;
     final brand = theme.extension<BrandExtension>();
 
-    const Color success = Color(0xFF15803D);
-    const Color danger = Color(0xFFB91C1C);
-    const Color warning = Color(0xFFB45309);
-
     final bool canContinue = _confirmAge && !_loading;
 
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        leading: const BackButton(),
-        title: Text('Guest Access', style: theme.textTheme.titleLarge),
-        centerTitle: true,
+        title: const Text('Guest Access'),
       ),
       body: SafeArea(
         child: Center(
@@ -67,7 +61,7 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
 
                 _FeatureRow(
                   icon: Icons.wb_sunny_rounded,
-                  iconColor: success,
+                  iconColor: AppColors.success,
                   title: 'Daily Darshan - Fully available',
                   help: "Receive today's teaching, meaning, blessing.",
                 ),
@@ -75,7 +69,7 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
 
                 _FeatureRow(
                   icon: Icons.local_fire_department,
-                  iconColor: danger,
+                  iconColor: AppColors.error,
                   title: 'Diya Tracker - Not available',
                   help: 'Sign up to track devotion streak.',
                 ),
@@ -83,7 +77,7 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
 
                 _FeatureRow(
                   icon: Icons.chat_bubble_rounded,
-                  iconColor: warning,
+                  iconColor: AppColors.warning,
                   title: 'Guru Chat - Limited',
                   help: 'Sign up for unlimited guidance.',
                 ),
@@ -105,7 +99,7 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
                           child: Text(
                             'I confirm I am above 18 years old',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.black,
+                              color: AppColors.onBackground,
                             ),
                             textScaleFactor: 1.0, // Add this
                           ),
@@ -131,7 +125,7 @@ class _GuestInterstitialPageState extends State<GuestInterstitialPage> {
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
+                                AppColors.onAccent,
                               ),
                             ),
                           )
@@ -216,7 +210,7 @@ class _FeatureRow extends StatelessWidget {
                   Text(
                     help,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: Colors.black,
+                      color: AppColors.onBackground,
                       fontWeight: FontWeight.w300,
                     ),
                   ),
@@ -246,7 +240,7 @@ class _TermsAndPrivacyText extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = Theme.of(context).textTheme.bodyMedium!;
 
-    final blackBody = style.copyWith(color: Colors.black);
+    final blackBody = style.copyWith(color: AppColors.onBackground);
 
     final linkStyle = style.copyWith(
       color: Theme.of(context).colorScheme.primary,

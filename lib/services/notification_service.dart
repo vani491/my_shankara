@@ -42,8 +42,11 @@ class NotificationService {
     if (_initialized) return;
 
     tzdata.initializeTimeZones();
+  /*  final deviceTz = await FlutterTimezone.getLocalTimezone();
+    tz.setLocalLocation(tz.getLocation(deviceTz));*/
+
     final deviceTz = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(deviceTz as String));
+    tz.setLocalLocation(tz.getLocation(deviceTz.identifier));
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings(
@@ -142,35 +145,50 @@ class NotificationService {
     return const NotificationDetails(android: android, iOS: ios);
   }
 
-  /// Cancel everything, then schedule one repeating weekly notification per
-  /// weekday at [hour]:[minute]. Notification id = weekday number (1–7).
-  Future<void> scheduleWeekly({
+  Future<void> scheduleDaily({
     required int hour,
     required int minute,
+    Function(String)? onToast,
   }) async {
     await cancelAll();
-    // Timezone fix bhi yahan check karo
-    debugPrint('[Notif] tz.local = ${tz.local.name}');
-    final mode = await _resolveScheduleMode();
+    onToast?.call('cancelAll done');
 
-    for (final entry in _messages.entries) {
-      final weekday = entry.key;
-      final message = entry.value;
-      final scheduled = _nextInstanceOf(weekday, hour, minute);
-      await _plugin.zonedSchedule(
-        weekday,
-        'MyShankara',
-        message,
-        scheduled,
-        _details(),
-        androidScheduleMode: mode,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-      );
+    final mode = await _resolveScheduleMode();
+    onToast?.call('mode=$mode');
+
+    try {
+      // One weekly-repeating notification per weekday, each with its own
+      // message. id = weekday (Mon=1 ... Sun=7).
+      for (final entry in _messages.entries) {
+        final scheduled = _nextInstanceOf(entry.key, hour, minute);
+        onToast?.call('weekday ${entry.key} scheduled=$scheduled');
+        await _plugin.zonedSchedule(
+          entry.key,
+          'MyShankara',
+          entry.value,
+          scheduled,
+          _details(),
+          androidScheduleMode: mode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+        );
+      }
+      onToast?.call('zonedSchedule SUCCESS ✓');
+    } catch (e) {
+      onToast?.call('zonedSchedule ERROR: $e');
     }
-    debugPrint('[Notifications] scheduleWeekly done — mode=$mode');
   }
+
+
+
+
+
+
+
+
+
+
 
   /// One-off test notification (id 999) fired after [seconds] seconds.
   /// No matchDateTimeComponents — fires exactly once, not weekly.
@@ -184,7 +202,7 @@ class NotificationService {
       'Test notification — delivery confirmed.',
       tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds)),
       _details(),
-      androidScheduleMode: mode,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );
@@ -224,7 +242,7 @@ class NotificationService {
 
   // Default 7 AM pe daily reminder on karo + prefs me save karo
   Future<void> enableDefaultDailyReminder() async {
-    await scheduleWeekly(hour: 7, minute: 0);
+    await scheduleDaily(hour: 7, minute: 0);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('notifications_enabled', true);
     await prefs.setInt('notif_hour', 7);

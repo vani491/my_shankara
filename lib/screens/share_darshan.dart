@@ -21,17 +21,13 @@ class ShareDarshanPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        title:  Text('Share Darshan', style: theme.textTheme.titleLarge),
+        title: const Text('Share Darshan'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -104,7 +100,7 @@ class ShareDarshanPage extends StatelessWidget {
                 icon: Icons.email_outlined,
                 label: 'Share via Email',
                 background: AppColors.primary,
-                foreground: Colors.white,
+                foreground: AppColors.onPrimary,
                 onTap: () => _shareViaEmail(context),
               ),
             ],

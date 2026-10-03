@@ -1,9 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/theme/app_theme.dart';
-import '../app_drawer.dart';
 import '../main.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
@@ -17,12 +17,26 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/access_service.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 
 // ─── Guest daily-message limit ───────────────────────────────────────────────
 const int _kGuestDailyLimit = 5;
 
+// ─── Dify API config ──────────────────────────────────────────────────────────
+// Shared by every Dify call in this file.
+const String _difyBaseUrl = 'https://dify.myshankara.ai/v1';
+const String _difyApiKey = 'app-uYLIu5sp5pouPQihWiJ1ch5Q';
+
+/// The Dify "user" identifier — the same Firebase Auth uid used as the
+/// Firestore document id under `users/{uid}`. Every user (including guests,
+/// who are signed in anonymously) has one, so this must stay identical
+/// between the original chat-messages request and any later feedback /
+/// delete request for that same conversation, or Dify responds with a 404.
+String _difyEndUserId() => FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+
 class ChatbotPage extends StatefulWidget {
-  const ChatbotPage({super.key});
+  final VoidCallback? onOpenDrawer;
+  const ChatbotPage({super.key, this.onOpenDrawer});
 
   @override
   State<ChatbotPage> createState() => _ChatbotPageState();
@@ -77,7 +91,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: Column(
@@ -95,7 +109,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
                 // Body
                 Text(
-                  'You\'ve used all $_kGuestDailyLimit messages for today.Sign up for unlimited access to your spiritual guide.',
+                  'You\'ve used all $_kGuestDailyLimit messages for today. Sign up for unlimited access to your spiritual guide.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppColors.onBackground.withOpacity(0.75),
                     height: 1.5,
@@ -158,11 +172,25 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
   String? getUid() => _auth.currentUser?.uid;
 
-  Future<void> _saveMessageToFirestore(_Msg msg) async {
+  Future<void> _saveDifyConversationId() async {
     final uid = getUid();
     if (uid == null || _currentChatId.isEmpty) return;
 
     await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('chats')
+        .doc(_currentChatId)
+        .update({'difyConversationId': _difyConversationId});
+  }
+
+  /// Returns the created Firestore doc id (needed later to persist feedback
+  /// changes back onto this exact message), or null for guests / no chat.
+  Future<String?> _saveMessageToFirestore(_Msg msg) async {
+    final uid = getUid();
+    if (uid == null || _currentChatId.isEmpty) return null;
+
+    final docRef = await _firestore
         .collection('users')
         .doc(uid)
         .collection('chats')
@@ -172,6 +200,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
       'role': msg.role.name,
       'text': msg.text,
       'timestamp': FieldValue.serverTimestamp(),
+      if (msg.messageId != null) 'messageId': msg.messageId,
+      'feedback': msg.feedback.name,
     });
 
     await _firestore
@@ -180,6 +210,32 @@ class _ChatbotPageState extends State<ChatbotPage> {
         .collection('chats')
         .doc(_currentChatId)
         .update({'lastMessage': msg.text});
+
+    return docRef.id;
+  }
+
+  /// Best-effort persistence of a feedback change onto an already-saved
+  /// message, so it loads back correctly next time the chat is opened.
+  Future<void> _persistFeedback(_Msg msg) async {
+    final uid = getUid();
+    if (uid == null ||
+        _currentChatId.isEmpty ||
+        msg.firestoreDocId == null) {
+      return;
+    }
+    try {
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .collection('chats')
+          .doc(_currentChatId)
+          .collection('messages')
+          .doc(msg.firestoreDocId)
+          .update({'feedback': msg.feedback.name});
+    } catch (_) {
+      // Non-critical: the Dify-side feedback already succeeded. Worst case
+      // the local highlight resets next time this chat is reopened.
+    }
   }
 
   // ── Guest message counter (live, in-memory) ───────────────────────────────
@@ -188,6 +244,11 @@ class _ChatbotPageState extends State<ChatbotPage> {
   // ── Chat history (only used for signed-in users) ───────────────────────────
   final List<_ChatSession> _chatHistory = [];
   String _currentChatId = '';
+
+  // ── Dify conversation continuity ────────────────────────────────────────────
+  // Sent back on every Dify call so replies stay in the same conversation
+  // instead of starting a new one on every turn.
+  String _difyConversationId = '';
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -244,6 +305,14 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
     _currentChatId = chatId;
 
+    final chatDoc = await _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('chats')
+        .doc(chatId)
+        .get();
+    _difyConversationId = (chatDoc.data()?['difyConversationId'] ?? '') as String;
+
     final msgs = await _firestore
         .collection('users')
         .doc(uid)
@@ -258,11 +327,15 @@ class _ChatbotPageState extends State<ChatbotPage> {
       _seedFirstMessage();
 
       for (final m in msgs.docs) {
+        final data = m.data();
         _messages.add(
           _Msg(
-            role: m['role'] == 'user' ? Role.user : Role.bot,
-            text: m['text'],
-            ts: (m['timestamp'] as Timestamp).toDate(),
+            role: data['role'] == 'user' ? Role.user : Role.bot,
+            text: data['text'],
+            ts: (data['timestamp'] as Timestamp).toDate(),
+            messageId: data['messageId'] as String?,
+            feedback: _thumbFromName(data['feedback'] as String?),
+            firestoreDocId: m.id,
           ),
         );
       }
@@ -296,11 +369,17 @@ class _ChatbotPageState extends State<ChatbotPage> {
           id: chat.id,
           title: msgs.docs.isNotEmpty ? msgs.docs.first['text'] : 'New Chat',
           timestamp: DateTime.now(),
+          difyConversationId:
+              (chat.data()['difyConversationId'] ?? '') as String,
           messages: msgs.docs.map((m) {
+            final data = m.data();
             return _Msg(
-              role: m['role'] == 'user' ? Role.user : Role.bot,
-              text: m['text'],
-              ts: (m['timestamp'] as Timestamp).toDate(),
+              role: data['role'] == 'user' ? Role.user : Role.bot,
+              text: data['text'],
+              ts: (data['timestamp'] as Timestamp).toDate(),
+              messageId: data['messageId'] as String?,
+              feedback: _thumbFromName(data['feedback'] as String?),
+              firestoreDocId: m.id,
             );
           }).toList(),
         ),
@@ -315,6 +394,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
   void _startNewChat() {
     setState(() {
       _currentChatId = '';
+      _difyConversationId = '';
       _messages.clear();
       _seedFirstMessage();
     });
@@ -345,6 +425,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
       title: _getChatTitle(),
       timestamp: DateTime.now(),
       messages: List.from(_messages),
+      difyConversationId: _difyConversationId,
     );
 
     setState(() {
@@ -377,8 +458,56 @@ class _ChatbotPageState extends State<ChatbotPage> {
     _jumpToBottomSoon();
   }
 
+  /// Deletes a chat locally, in Firestore, and its Dify conversation.
+  /// The local list is updated immediately for a responsive UI; the Firestore
+  /// and Dify deletes happen in the background and only surface a snackbar
+  /// on failure (removal already happened locally, so it isn't reverted —
+  /// see the class doc comment on `_deleteChatFromFirestore` for why this can
+  /// still leave stale server-side state on failure).
   void _deleteChat(_ChatSession session) {
     setState(() => _chatHistory.remove(session));
+    unawaited(_deleteChatEverywhere(session));
+  }
+
+  Future<void> _deleteChatEverywhere(_ChatSession session) async {
+    try {
+      await _deleteChatFromFirestore(session.id);
+    } catch (_) {
+      _showTransientError("Couldn't fully delete this chat. It may reappear.");
+    }
+
+    if (session.difyConversationId.isNotEmpty) {
+      try {
+        await _deleteDifyConversation(session.difyConversationId);
+      } catch (_) {
+        _showTransientError("Couldn't delete the conversation from the assistant.");
+      }
+    }
+  }
+
+  /// Deletes a chat doc and its messages subcollection (Firestore does not
+  /// cascade-delete subcollections on its own).
+  Future<void> _deleteChatFromFirestore(String chatId) async {
+    final uid = getUid();
+    if (uid == null || chatId.isEmpty) return;
+
+    final chatRef =
+        _firestore.collection('users').doc(uid).collection('chats').doc(chatId);
+
+    final msgs = await chatRef.collection('messages').get();
+    final batch = _firestore.batch();
+    for (final doc in msgs.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(chatRef);
+    await batch.commit();
+  }
+
+  void _showTransientError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
   }
 
   void _seedFirstMessage() {
@@ -398,10 +527,15 @@ class _ChatbotPageState extends State<ChatbotPage> {
     final text = _controller.text.trim();
     if (text.isEmpty || _botTyping) return;
 
+    // Disable the send button immediately so rapid taps can't queue up
+    // multiple requests while the async checks below are in flight.
+    setState(() => _botTyping = true);
+
     // 1. Check guest daily limit
     if (_isGuest) {
       final canSend = await _canGuestSendMessage();
       if (!canSend) {
+        setState(() => _botTyping = false);
         _showLimitReachedDialog();
         return;
       }
@@ -411,6 +545,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
     if (!_isGuest) {
       final allowed = await AccessService.hasAccess();
       if (!allowed) {
+        setState(() => _botTyping = false);
         if (mounted) context.push('/guru-dakshina');
         return;
       }
@@ -422,7 +557,6 @@ class _ChatbotPageState extends State<ChatbotPage> {
     setState(() {
       _messages.add(userMsg);
       _controller.clear();
-      _botTyping = true;
     });
 
     _jumpToBottomSoon();
@@ -434,8 +568,19 @@ class _ChatbotPageState extends State<ChatbotPage> {
         await _saveMessageToFirestore(userMsg);
       }
 
-      final reply = await _callDify(text);
-      final botMsg = _Msg(role: Role.bot, text: reply, ts: DateTime.now());
+      final reply = await _callDify(text, _difyConversationId);
+      final cleanedAnswer =
+          reply.answer.trim().replaceAll(RegExp(r'\n{3,}'), '\n\n');
+      final botMsg = _Msg(
+        role: Role.bot,
+        text: cleanedAnswer,
+        ts: DateTime.now(),
+        messageId: reply.messageId.isEmpty ? null : reply.messageId,
+      );
+
+      if (reply.conversationId.isNotEmpty) {
+        _difyConversationId = reply.conversationId;
+      }
 
       setState(() => _messages.add(botMsg));
 
@@ -443,7 +588,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
       if (_isGuest) {
         await _incrementGuestCount();
       } else {
-        await _saveMessageToFirestore(botMsg);
+        botMsg.firestoreDocId = await _saveMessageToFirestore(botMsg);
+        await _saveDifyConversationId();
         await _loadChatsFromFirestore();
       }
     } catch (e) {
@@ -459,6 +605,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
       _jumpToBottomSoon();
     }
   }
+
+  void _onTerms() => context.push('/terms-of-service');
+  void _onPrivacy() => context.push('/privacy-policy');
 
   void _jumpToBottomSoon() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -484,12 +633,15 @@ class _ChatbotPageState extends State<ChatbotPage> {
   // ── Dialogs ────────────────────────────────────────────────────────────────
 
   void _confirmDelete(
-      BuildContext context, _ChatSession chat, bool isCurrentChat) {
+      BuildContext context, _ChatSession chat, bool isCurrentChat,
+      {VoidCallback? onDeleted}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24)),
           titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 20),
           actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           title: const Text(
@@ -497,33 +649,22 @@ class _ChatbotPageState extends State<ChatbotPage> {
             softWrap: true,
           ),
           actions: [
-            SizedBox(
-              width: double.infinity,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        _deleteChat(chat);
-                        Navigator.pop(context);
-                        if (isCurrentChat) _startNewChat();
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: Theme.of(context).colorScheme.error,
-                        textStyle:
-                        const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      child: const Text('Delete'),
-                    ),
-                  ],
-                ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                _deleteChat(chat);
+                onDeleted?.call();
+                Navigator.pop(context);
+                if (isCurrentChat) _startNewChat();
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+                textStyle: const TextStyle(fontWeight: FontWeight.w600),
               ),
+              child: const Text('Delete'),
             ),
           ],
         );
@@ -536,110 +677,114 @@ class _ChatbotPageState extends State<ChatbotPage> {
   void _showChatHistoryPopup() {
     final theme = Theme.of(context);
     final brand = Theme.of(context).extension<BrandExtension>()!;
-    final chatHistoryColor = Theme.of(context).colorScheme.primary;
     final onBg = theme.colorScheme.onSurface;
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.85,
-          height: MediaQuery.of(context).size.height * 0.7,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: theme.colorScheme.surface,
-          ),
-          child: Column(
-            children: [
-              // Header
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16.0),
-                decoration: BoxDecoration(
-                  color:
-                  Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
+      isScrollControlled: true,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          return SizedBox(
+            height: MediaQuery.of(sheetContext).size.height * 0.88,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  // Grabber handle
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: onBg.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                      tooltip: 'Close',
-                    ),
-                    Expanded(
-                      child: Text(
-                        'Chat History',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: chatHistoryColor,
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(sheetContext),
+                          tooltip: 'Close',
                         ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.add),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _startNewChat();
-                      },
-                      tooltip: 'New Chat',
-                    ),
-                  ],
-                ),
-              ),
-              // Chat list
-              Expanded(
-                child: _chatHistory.isEmpty
-                    ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.chat_outlined,
-                        size: 64,
-                        color: onBg.withOpacity(0.3),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No chat history yet',
-                        style: TextStyle(
-                          color: onBg.withOpacity(0.5),
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-                    : ListView.builder(
-                  itemCount: _chatHistory.length,
-                  itemBuilder: (context, index) {
-                    final chat = _chatHistory[index];
-                    final isCurrentChat = chat.id == _currentChatId;
-
-                    return Center(
-                      child: Container(
-                        width: MediaQuery.of(context).size.width * 0.75,
-                        margin: const EdgeInsets.symmetric(
-                            vertical: 4, horizontal: 8),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                              color: Colors.grey.shade400, width: 2),
-                        ),
-                        child: ListTile(
-                          selected: isCurrentChat,
-                          selectedTileColor: isCurrentChat
-                              ? brand.accentButton.withOpacity(0.1)
-                              : Colors.transparent,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 4),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                        Expanded(
+                          child: Text(
+                            'Chat History',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                            ),
                           ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add),
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            _startNewChat();
+                          },
+                          tooltip: 'New Chat',
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1, thickness: 1, color: AppColors.outline),
+                  // Chat list
+                  Expanded(
+                    child: _chatHistory.isEmpty
+                        ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.chat_outlined,
+                            size: 64,
+                            color: onBg.withOpacity(0.3),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No chat history yet',
+                            style: TextStyle(
+                              color: onBg.withOpacity(0.5),
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                        : ListView.separated(
+                      itemCount: _chatHistory.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        thickness: 1,
+                        indent: 16,
+                        endIndent: 16,
+                        color: AppColors.outline.withOpacity(0.5),
+                      ),
+                      itemBuilder: (context, index) {
+                        final chat = _chatHistory[index];
+                        final isCurrentChat = chat.id == _currentChatId;
+
+                        return ListTile(
+                          selected: isCurrentChat,
+                          selectedTileColor:
+                              brand.accentButton.withOpacity(0.1),
+                          hoverColor:
+                              theme.colorScheme.primary.withOpacity(0.06),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 4),
                           title: Text(
                             chat.title,
                             maxLines: 1,
@@ -667,24 +812,28 @@ class _ChatbotPageState extends State<ChatbotPage> {
                             ),
                           ),
                           trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline,
-                                color: Colors.redAccent),
+                            icon: Icon(Icons.delete_outline,
+                                color: theme.colorScheme.error),
                             onPressed: () => _confirmDelete(
-                                context, chat, isCurrentChat),
+                              context,
+                              chat,
+                              isCurrentChat,
+                              onDeleted: () => setSheetState(() {}),
+                            ),
                           ),
                           onTap: () {
-                            Navigator.pop(context);
+                            Navigator.pop(sheetContext);
                             _loadChatFromFirestore(chat.id);
                           },
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -700,9 +849,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
     return AppLayout(
       title: "Guru Chat",
-      backgroundImage: 'assets/guruchatbg.png',
+      backgroundImage: 'assets/backgrounds/guruchatbg.png',
       backgroundOpacity: 0.40,
-      drawer: const AppDrawer(),
+      onMenuPressed: widget.onOpenDrawer,
       actions: [
         // History button only for signed-in users
         if (!_isGuest)
@@ -759,9 +908,17 @@ class _ChatbotPageState extends State<ChatbotPage> {
                       }
 
                       return _MessageBubble(
+                        key: ValueKey(
+                            '${_currentChatId}_${index}_${msg.ts.microsecondsSinceEpoch}'),
                         text: msg.text,
                         isUser: isUser,
                         time: _fmtTime(msg.ts),
+                        messageId: msg.messageId,
+                        feedback: msg.feedback,
+                        onFeedbackChanged: (thumb) {
+                          msg.feedback = thumb;
+                          _persistFeedback(msg);
+                        },
                       );
                     },
                   );
@@ -773,52 +930,62 @@ class _ChatbotPageState extends State<ChatbotPage> {
             Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _sendCurrentText(),
-                      decoration: InputDecoration(
-                        hintText: "Type a message…",
-                        filled: true,
-                        fillColor: theme.colorScheme.surface,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                          BorderSide(color: onBg.withOpacity(0.08)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                              color:
-                              theme.colorScheme.primary.withOpacity(0.4)),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _sendCurrentText,
-                    icon: CircleAvatar(
-                      backgroundColor: AppColors.accent,
-                      radius: 20,
-                      child: Padding(
-                        padding: const EdgeInsets.all(4.0),
-                        child: Image.asset(
-                          'assets/om.png',
-                          width: 25,
-                          height: 25,
-                          color: AppColors.primary,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) =>
+                              _botTyping ? null : _sendCurrentText(),
+                          decoration: InputDecoration(
+                            hintText: "Type a message…",
+                            filled: true,
+                            fillColor: theme.colorScheme.surface,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide:
+                              BorderSide(color: onBg.withOpacity(0.08)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(
+                                  color: theme.colorScheme.primary
+                                      .withOpacity(0.4)),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: _botTyping ? null : _sendCurrentText,
+                        icon: CircleAvatar(
+                          backgroundColor: _botTyping
+                              ? AppColors.accent.withOpacity(0.4)
+                              : AppColors.accent,
+                          radius: 20,
+                          child: Padding(
+                            padding: const EdgeInsets.all(4.0),
+                            child: Image.asset(
+                              'assets/icons/om.png',
+                              width: 25,
+                              height: 25,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 8),
+                  _ChatDisclaimer(onTerms: _onTerms, onPrivacy: _onPrivacy),
                 ],
               ),
             ),
@@ -887,6 +1054,57 @@ class _GuestLimitBanner extends StatelessWidget {
   }
 }
 
+// ─── Chat disclaimer ───────────────────────────────────────────────────────────
+/// Shown just below the message composer to set expectations about AI
+/// accuracy and privacy, with links to the legal pages.
+class _ChatDisclaimer extends StatelessWidget {
+  final VoidCallback onTerms;
+  final VoidCallback onPrivacy;
+
+  const _ChatDisclaimer({
+    required this.onTerms,
+    required this.onPrivacy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurface.withOpacity(0.6),
+      fontSize: 11,
+    );
+    final linkStyle = style?.copyWith(
+      color: AppColors.link,
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+    );
+
+    return Text.rich(
+      textAlign: TextAlign.center,
+      TextSpan(
+        style: style,
+        children: [
+          const TextSpan(
+            text: 'AI-generated responses may be inaccurate • Do not share '
+                'sensitive information • ',
+          ),
+          TextSpan(
+            text: 'Terms of Service',
+            style: linkStyle,
+            recognizer: TapGestureRecognizer()..onTap = onTerms,
+          ),
+          const TextSpan(text: ' • '),
+          TextSpan(
+            text: 'Privacy Policy',
+            style: linkStyle,
+            recognizer: TapGestureRecognizer()..onTap = onPrivacy,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Data models ───────────────────────────────────────────────────────────────
 
 enum Role { user, bot }
@@ -896,13 +1114,34 @@ class _Msg {
   final String text;
   final DateTime ts;
   final bool isWelcome;
+  final String? messageId;
+  // Mutated in place (not via setState) so the current thumbs up/down
+  // selection survives widget rebuilds without needing a parent rebuild.
+  _Thumb feedback;
+  // Firestore doc id for this message, set once it's been saved, so a later
+  // feedback change can be written back onto the same document.
+  String? firestoreDocId;
 
   _Msg({
     required this.role,
     required this.text,
     required this.ts,
     this.isWelcome = false,
+    this.messageId,
+    this.feedback = _Thumb.none,
+    this.firestoreDocId,
   });
+}
+
+_Thumb _thumbFromName(String? name) {
+  switch (name) {
+    case 'up':
+      return _Thumb.up;
+    case 'down':
+      return _Thumb.down;
+    default:
+      return _Thumb.none;
+  }
 }
 
 class _ChatSession {
@@ -910,12 +1149,14 @@ class _ChatSession {
   final String title;
   final DateTime timestamp;
   final List<_Msg> messages;
+  final String difyConversationId;
 
   _ChatSession({
     required this.id,
     required this.title,
     required this.timestamp,
     required this.messages,
+    this.difyConversationId = '',
   });
 }
 
@@ -923,14 +1164,21 @@ class _ChatSession {
 
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
+    super.key,
     required this.text,
     required this.isUser,
     required this.time,
+    this.messageId,
+    this.feedback = _Thumb.none,
+    this.onFeedbackChanged,
   });
 
   final String text;
   final bool isUser;
   final String time;
+  final String? messageId;
+  final _Thumb feedback;
+  final ValueChanged<_Thumb>? onFeedbackChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -942,7 +1190,7 @@ class _MessageBubble extends StatelessWidget {
 
     final textColor = isUser
         ? const Color(0xFF000000)
-        : Colors.white;
+        : AppColors.onPrimary;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -967,7 +1215,7 @@ class _MessageBubble extends StatelessWidget {
                       radius: 16,
                       backgroundColor: Colors.transparent,
                       child: Image.asset(
-                        'assets/Guru-Chat.png',
+                        'assets/images/Guru-Chat.png',
                         width: 32,
                         height: 32,
                       ),
@@ -987,7 +1235,7 @@ class _MessageBubble extends StatelessWidget {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: AppColors.onBackground.withValues(alpha: 0.05),
                           blurRadius: 2,
                           offset: const Offset(0, 1),
                         ),
@@ -1005,66 +1253,187 @@ class _MessageBubble extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            if (!isUser)
+            if (!isUser) ...[
+              const SizedBox(height: 4),
               Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.thumb_up_outlined,
-                          size: 18, color: AppColors.secondary),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Thanks for your feedback!'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: Icon(Icons.thumb_down_outlined,
-                          size: 18, color: AppColors.secondary),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Thanks for your feedback!'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: Icon(Icons.content_copy_outlined,
-                          size: 18, color: AppColors.secondary),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: text));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copy action triggered!'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                padding: const EdgeInsets.only(left: 40),
+                child: _MessageActions(
+                  text: text,
+                  messageId: messageId,
+                  initialFeedback: feedback,
+                  onFeedbackChanged: onFeedbackChanged ?? (_) {},
                 ),
-              )
-
-
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+enum _Thumb { none, up, down }
+
+class _MessageActions extends StatefulWidget {
+  const _MessageActions({
+    required this.text,
+    required this.messageId,
+    required this.initialFeedback,
+    required this.onFeedbackChanged,
+  });
+
+  final String text;
+  final String? messageId;
+  final _Thumb initialFeedback;
+  final ValueChanged<_Thumb> onFeedbackChanged;
+
+  @override
+  State<_MessageActions> createState() => _MessageActionsState();
+}
+
+class _MessageActionsState extends State<_MessageActions> {
+  late _Thumb _selected = widget.initialFeedback;
+  // Which thumb (if any) currently has a feedback request in flight.
+  _Thumb? _pending;
+  bool _justCopied = false;
+  Timer? _copyRevertTimer;
+
+  bool get _canRate => widget.messageId != null && widget.messageId!.isNotEmpty;
+
+  @override
+  void dispose() {
+    _copyRevertTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleTap(_Thumb thumb) async {
+    // Guard against double-tap spamming and missing message ids.
+    if (_pending != null || !_canRate) return;
+
+    // Selecting thumbs-down (not un-voting an existing dislike) asks for an
+    // optional explanation first.
+    if (thumb == _Thumb.down && _selected != _Thumb.down) {
+      final content = await _showFeedbackContentDialog(context);
+      if (!mounted || content == null) return; // dialog cancelled
+      await _submitFeedback(
+        pressedThumb: thumb,
+        next: _Thumb.down,
+        content: content.isEmpty ? null : content,
+      );
+      return;
+    }
+
+    final next = _selected == thumb ? _Thumb.none : thumb;
+    await _submitFeedback(pressedThumb: thumb, next: next);
+  }
+
+  Future<void> _submitFeedback({
+    required _Thumb pressedThumb,
+    required _Thumb next,
+    String? content,
+  }) async {
+    final previous = _selected;
+    final rating = switch (next) {
+      _Thumb.up => 'like',
+      _Thumb.down => 'dislike',
+      _Thumb.none => null,
+    };
+
+    setState(() {
+      _selected = next;
+      _pending = pressedThumb;
+    });
+    widget.onFeedbackChanged(next);
+
+    try {
+      await _sendDifyFeedback(
+        messageId: widget.messageId!,
+        rating: rating,
+        content: content,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _selected = previous);
+      widget.onFeedbackChanged(previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't send feedback. Please try again."),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    } finally {
+      if (mounted) setState(() => _pending = null);
+    }
+  }
+
+  void _copyText() {
+    Clipboard.setData(ClipboardData(text: widget.text));
+    _copyRevertTimer?.cancel();
+    setState(() => _justCopied = true);
+    _copyRevertTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _justCopied = false);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Copied to clipboard'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  Widget _thumbIcon(_Thumb thumb, IconData icon) {
+    if (_pending == thumb) {
+      return SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: AppColors.secondary,
+        ),
+      );
+    }
+    final isSelected = _selected == thumb;
+    final disabled = !_canRate || (_pending != null && _pending != thumb);
+    return Icon(
+      icon,
+      size: 18,
+      color: isSelected
+          ? AppColors.accent.withOpacity(disabled ? 0.5 : 1)
+          : AppColors.secondary.withOpacity(disabled ? 0.4 : 1),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = !_canRate || _pending != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: _thumbIcon(_Thumb.up, Icons.thumb_up_outlined),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          onPressed: disabled ? null : () => _handleTap(_Thumb.up),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: _thumbIcon(_Thumb.down, Icons.thumb_down_outlined),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          onPressed: disabled ? null : () => _handleTap(_Thumb.down),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: Icon(
+              _justCopied ? Icons.check : Icons.content_copy_outlined,
+              size: 18,
+              color: _justCopied ? AppColors.success : AppColors.secondary),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          onPressed: _copyText,
+        ),
+      ],
     );
   }
 }
@@ -1131,12 +1500,17 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
+    return SizedBox(
       width: 6,
       height: 6,
       child: DecoratedBox(
-        decoration:
-        BoxDecoration(shape: BoxShape.circle, color: Colors.black54),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Theme.of(context)
+              .colorScheme
+              .onSurfaceVariant
+              .withOpacity(0.7),
+        ),
       ),
     );
   }
@@ -1153,7 +1527,7 @@ class _WelcomeMessage extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 20),
       child: Column(
         children: [
-          Image.asset('assets/Guru-Chat.png', width: 160, height: 160),
+          Image.asset('assets/images/Guru-Chat.png', width: 160, height: 160),
           const SizedBox(height: 16),
           Text(greeting,
               textAlign: TextAlign.center,
@@ -1183,20 +1557,21 @@ String _formatChatTime(DateTime t, bool isActive) {
   return '${t.day} ${months[t.month - 1]} ${t.year}';
 }
 
-Future<String> _callDify(String userText) async {
-  final url = Uri.parse('https://dify.myshankara.ai/v1/chat-messages');
+Future<({String answer, String conversationId, String messageId})> _callDify(
+    String userText, String conversationId) async {
+  final url = Uri.parse('$_difyBaseUrl/chat-messages');
   final resp = await http.post(
     url,
     headers: const {
-      'Authorization': 'Bearer app-R5F8MFLhSOex8tKyE0C3MFwt',
+      'Authorization': 'Bearer $_difyApiKey',
       'Content-Type': 'application/json',
     },
     body: jsonEncode({
       "inputs": {},
       "query": userText,
       "response_mode": "blocking",
-      "conversation_id": "",
-      "user": "abc-123",
+      "conversation_id": conversationId,
+      "user": _difyEndUserId(),
       "files": [],
     }),
   );
@@ -1204,8 +1579,146 @@ Future<String> _callDify(String userText) async {
   if (resp.statusCode >= 200 && resp.statusCode < 300) {
     final data = jsonDecode(resp.body);
     final answer = data['answer'] ?? data['data'] ?? data['message'] ?? resp.body;
-    return answer.toString();
+    return (
+      answer: answer.toString(),
+      conversationId: (data['conversation_id'] ?? '').toString(),
+      messageId: (data['message_id'] ?? '').toString(),
+    );
   } else {
     throw Exception('Dify error ${resp.statusCode}: ${resp.body}');
   }
+}
+
+/// Deletes a Dify conversation (and its messages) server-side. Called when
+/// the user deletes a chat locally, so it doesn't linger in Dify.
+Future<void> _deleteDifyConversation(String conversationId) async {
+  final url = Uri.parse('$_difyBaseUrl/conversations/$conversationId');
+  final resp = await http.delete(
+    url,
+    headers: const {
+      'Authorization': 'Bearer $_difyApiKey',
+      'Content-Type': 'application/json',
+    },
+    body: jsonEncode({"user": _difyEndUserId()}),
+  );
+
+  // 404 means it's already gone on Dify's side — treat as success.
+  if (resp.statusCode != 404 &&
+      !(resp.statusCode >= 200 && resp.statusCode < 300)) {
+    throw Exception(
+        'Dify delete-conversation error ${resp.statusCode}: ${resp.body}');
+  }
+}
+
+/// Submits (or clears, when [rating] is null) feedback for one Dify message.
+/// `user` must match the value sent on the original chat-messages request
+/// for this [messageId], otherwise Dify returns 404.
+Future<void> _sendDifyFeedback({
+  required String messageId,
+  required String? rating,
+  String? content,
+}) async {
+  final url = Uri.parse('$_difyBaseUrl/messages/$messageId/feedbacks');
+  final resp = await http.post(
+    url,
+    headers: const {
+      'Authorization': 'Bearer $_difyApiKey',
+      'Content-Type': 'application/json',
+    },
+    body: jsonEncode({
+      "rating": rating,
+      "user": _difyEndUserId(),
+      if (content != null && content.isNotEmpty) "content": content,
+    }),
+  );
+
+  if (resp.statusCode < 200 || resp.statusCode >= 300) {
+    throw Exception('Dify feedback error ${resp.statusCode}: ${resp.body}');
+  }
+}
+
+/// "Provide Feedback" dialog shown when a user selects thumbs-down, so the
+/// dislike can be submitted with an optional explanation. Returns the typed
+/// text on Submit (possibly empty), or null if the user cancelled.
+Future<String?> _showFeedbackContentDialog(BuildContext context) {
+  final controller = TextEditingController();
+  final theme = Theme.of(context);
+
+  return showDialog<String?>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 4),
+        contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        title: Text(
+          'Report / Provide Feedback',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Please tell us what was wrong or inappropriate about this response',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.onBackground.withOpacity(0.7),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Feedback Content',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppColors.onBackground.withOpacity(0.85),
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 5,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                hintText: 'What could be improved?',
+                filled: true,
+                fillColor: theme.colorScheme.surface,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide:
+                      BorderSide(color: theme.colorScheme.onSurface.withOpacity(0.08)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                      color: theme.colorScheme.primary.withOpacity(0.4)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              textStyle: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            child: const Text('Submit'),
+          ),
+        ],
+      );
+    },
+  );
 }

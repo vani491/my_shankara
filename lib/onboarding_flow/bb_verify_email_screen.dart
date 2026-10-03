@@ -22,39 +22,6 @@ class VerifyEmailScreen extends StatefulWidget {
 }
 
 
-@immutable
-class BrandExtension extends ThemeExtension<BrandExtension> {
-  final Color accentButton;
-  final Color surfaceCard;
-  final Color primary;
-
-
-  const BrandExtension({
-    required this.accentButton,
-    required this.surfaceCard,
-    required this.primary
-  });
-
-  @override
-  BrandExtension copyWith({Color? accentButton, Color? surfaceCard}) =>
-      BrandExtension(
-        accentButton: accentButton ?? this.accentButton,
-        surfaceCard: surfaceCard ?? this.surfaceCard,
-        primary: AppColors.primary,
-      );
-
-  @override
-  BrandExtension lerp(ThemeExtension<BrandExtension>? other, double t) {
-    if (other is! BrandExtension) return this;
-    return BrandExtension(
-      accentButton: Color.lerp(accentButton, other.accentButton, t)!,
-      surfaceCard: Color.lerp(surfaceCard, other.surfaceCard, t)!,
-      primary: Color.lerp(primary, other.primary, t)!,
-    );
-  }
-}
-
-
 class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   final _controllers = List.generate(4, (_) => TextEditingController());
   final _focusNodes = List.generate(4, (_) => FocusNode());
@@ -110,7 +77,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Verification email sent! Please check your inbox.'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
       }
@@ -138,7 +105,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to resend email: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppColors.error,
           ),
         );
       }
@@ -149,12 +116,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = theme.extension<BrandExtension>();
 
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(
-        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () {
@@ -169,7 +134,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     child: const Text('No, Keep it'),
                   ),
                   TextButton(
-                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.error),
                     onPressed: () async {
                       Navigator.pop(context);
                       try {
@@ -192,11 +157,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
             );
           },
         ),
-        title: Text(
-          'Verify Email',
-          style: theme.textTheme.titleLarge,
-        ),
-        centerTitle: true,
+        title: const Text('Verify Email'),
       ),
       body: SafeArea(
         child: Center(

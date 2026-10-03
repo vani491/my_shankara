@@ -11,9 +11,9 @@ import 'services/notification_service.dart';
 
 import 'dart:async';
 // chandni changes
-// import 'firebase_options.dart';
+import 'firebase_options.dart';
 import 'screens/root_nav.dart';
-import 'screens/theme_demo_page.dart';
+import 'screens/ac_darshan_screen.dart';
 import 'setting_pages/settings_notifications.dart';
 import 'screens/support.dart';
 
@@ -28,6 +28,7 @@ import 'screens/profile_basics.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'theme/app_theme.dart';
+import 'theme/colors.dart';
 
 class AppState extends ChangeNotifier {
   AppState();
@@ -35,7 +36,9 @@ class AppState extends ChangeNotifier {
   User? _user;
 
   bool _isOnboarded = false;
-  bool _isProfileComplete = false;
+  // null = not yet determined (e.g. still loading, or the last check
+  // failed/timed out) — the router must not treat this as "incomplete".
+  bool? _isProfileComplete;
   bool _isEmailVerified = false;
 
   StreamSubscription<User?>? _sub;
@@ -45,7 +48,7 @@ class AppState extends ChangeNotifier {
 
   User? get user => _user;
   bool get isOnboarded => _isOnboarded;
-  bool get isProfileComplete => _isProfileComplete;
+  bool? get isProfileComplete => _isProfileComplete;
   bool get isEmailVerified => _isEmailVerified;
 
   String? get preferredName => _preferredName;
@@ -71,7 +74,7 @@ class AppState extends ChangeNotifier {
         await checkProfileComplete();
         await loadUserData();
       } else {
-        _isProfileComplete = false;
+        _isProfileComplete = null;
         _preferredName = null;
         _fullName = null;
         _userData = null;
@@ -97,7 +100,10 @@ class AppState extends ChangeNotifier {
           .get();
       _isProfileComplete = doc.exists && doc.data()?['fullName'] != null;
     } catch (e) {
-      _isProfileComplete = false;
+      // Leave _isProfileComplete as-is (null if never determined yet, or
+      // whatever it was last known to be) — a transient/timed-out read
+      // must not be treated as "profile incomplete" and force a redirect.
+      debugPrint('checkProfileComplete failed (leaving state unchanged): $e');
     }
     notifyListeners();
   }
@@ -153,7 +159,9 @@ Future<void> main() async {
 
   try {
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
     } catch (e, st) {
       debugPrint('Firebase init failed (continuing anyway): $e\n$st');
     }
@@ -198,7 +206,7 @@ Future<void> _initNotificationsInBackground() async {
     if (notifEnabled) {
       final hour = prefs.getInt('notif_hour') ?? 7;
       final minute = prefs.getInt('notif_minute') ?? 0;
-      await NotificationService.instance.scheduleWeekly(
+      await NotificationService.instance.scheduleDaily(
         hour: hour,
         minute: minute,
       );
@@ -259,11 +267,15 @@ class _MyAppState extends State<MyApp> {
         return '/verify-email';
       }
 
-      // Profile completion - SKIP for anonymous users
+      // Profile completion - SKIP for anonymous users.
+      // Only redirect once we've *confirmed* the profile is incomplete
+      // (isProfileComplete == false). While it's still null (unknown —
+      // e.g. the Firestore check hasn't resolved yet or timed out), don't
+      // force the user into the "About You" screen.
       if (isAuthed &&
           !isAnonymous &&
           isEmailVerified &&
-          !isProfileComplete &&
+          isProfileComplete == false &&
           !goingToProfileBasics) {
         return '/profile-basics';
       }
@@ -320,6 +332,12 @@ class _MyAppState extends State<MyApp> {
         path: '/profile-basics',
         builder: (_, __) => ProfileBasicsPage(appState: widget.appState),
       ),
+      GoRoute(
+        path: '/darshan',
+        builder: (_, state) => DarshanScreen(
+          onDarshanComplete: state.extra as VoidCallback?,
+        ),
+      ),
       GoRoute(path: '/guru-dakshina', builder: (_, __) => const GuruDakshinaPage()),
       GoRoute(path: '/share-darshan', builder: (_, __) => const ShareDarshanPage()),
       GoRoute(
@@ -368,9 +386,9 @@ Future<void> showSignOutConfirmDialog(
         builder: (ctx, setState) {
           return AlertDialog(
             title: const Text('Sign out?'),
-            content: const Text(
+            content: Text(
               "You'll need to sign in again to continue.",
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: AppColors.onSurface.withValues(alpha: 0.7)),
             ),
             actions: [
               TextButton(
@@ -426,22 +444,4 @@ Future<void> showSignOutConfirmDialog(
       );
     },
   );
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-  @override
-  Widget build(BuildContext context) => const Center(child: Text('Home'));
-}
-
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
-  @override
-  Widget build(BuildContext context) => const Center(child: Text('Profile'));
-}
-
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
-  @override
-  Widget build(BuildContext context) => const Center(child: Text('Settings'));
 }

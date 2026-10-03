@@ -73,7 +73,6 @@ class _AppLayoutState extends State<AppLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final hasBackground =
         widget.backgroundVideo != null || widget.backgroundImage != null;
 
@@ -92,16 +91,7 @@ class _AppLayoutState extends State<AppLayout> {
           ),
         )
             : null,
-        title: Text(
-          widget.title,
-          style: theme.textTheme.titleLarge,
-        ),
-        centerTitle: true,
-        // Keep AppBar transparent so the video shows through it
-        backgroundColor: Colors.transparent,
-        foregroundColor: theme.colorScheme.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
+        title: Text(widget.title),
         actions: widget.actions,
       ),
       drawer: widget.drawer,

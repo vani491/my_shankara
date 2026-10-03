@@ -52,7 +52,7 @@ class SocialSignInButton extends StatelessWidget {
 
   factory SocialSignInButton.google({
     required VoidCallback onPressed,
-    String assetName = 'assets/google-icon-logo.svg',
+    String assetName = 'assets/icons/google-icon-logo.svg',
     String label = 'Continue with Google',
     Color outlineColor = const Color(0xFFE0E0E0),
     Key? key,
@@ -72,7 +72,7 @@ class SocialSignInButton extends StatelessWidget {
 
   factory SocialSignInButton.apple({
     required VoidCallback onPressed,
-    String assetName = 'assets/apple-logo.svg',
+    String assetName = 'assets/icons/apple-logo.svg',
     String label = 'Continue with Apple',
     // double height = 52,
     Key? key,
@@ -265,20 +265,11 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = theme.extension<BrandExtension>();
-    final cardColor = brand?.surfaceCard ?? cs.surface;
-    final primaryButtonColor = brand?.accentButton ?? cs.primary;
 
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        leading: const BackButton(),
-        title: Text(
-          'Welcome Back',
-          style: theme.textTheme.titleLarge,
-        ),
-        centerTitle: true,
+        title: const Text('Welcome Back'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -438,17 +429,11 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white,
+                            AppColors.onAccent,
                           ),
                         ),
                       )
-                          : const Text(
-                        'Log in',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                          : const Text('Log in'),
                     ),
                   ),
 
@@ -459,7 +444,7 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
                     text: TextSpan(
 
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.black54,
+                        color: AppColors.onSurface.withValues(alpha: 0.7),
                         height: 1.3,
                       ),
                       children: <TextSpan>[
@@ -585,7 +570,6 @@ class _LabeledFieldState extends State<_LabeledField> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = null;
     // final isPasswordField = widget.obscure;
 
     return Column(
@@ -609,7 +593,7 @@ class _LabeledFieldState extends State<_LabeledField> {
               borderRadius: BorderRadius.circular(14),
             ),
             focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: brand?.accentButton ?? cs.primary),
+              borderSide: BorderSide(color: cs.primary),
               borderRadius: BorderRadius.circular(14),
             ),
             errorBorder: OutlineInputBorder(
@@ -737,7 +721,7 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
             width: 20,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
             ),
           )
               : const Text('Send Link'),

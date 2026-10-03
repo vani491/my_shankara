@@ -44,37 +44,38 @@ class _SettingsNotificationsScreenState
   Future<void> _saveNotifEnabled(bool value) async {
     try {
       if (value) {
-        _toast('Step 1: Requesting permissions...');
+       // _toast('Step 1: Requesting permissions...');
         final granted = await NotificationService.instance.requestPermissions();
-        _toast('Step 1 result: granted=$granted');
+       // _toast('Step 1 result: granted=$granted');
 
         final enabled = await NotificationService.instance.areNotificationsEnabled();
-        _toast('Step 2: areNotifEnabled=$enabled');
+        //_toast('Step 2: areNotifEnabled=$enabled');
 
         if (!granted || !enabled) {
-          _toast('BLOCKED: granted=$granted, enabled=$enabled');
+         // _toast('BLOCKED: granted=$granted, enabled=$enabled');
           if (mounted) _showBlockedDialog();
           return;
         }
 
-        _toast('Step 3: Calling scheduleWeekly...');
-        await NotificationService.instance.scheduleWeekly(
+        //_toast('Step 3: Calling scheduleDaily...');
+        await NotificationService.instance.scheduleDaily(
           hour: _notifTime.hour,
-          minute: _notifTime.minute,
+          minute: _notifTime.minute
+
         );
-        _toast('Step 3 done: scheduled!');
+       // _toast('Step 3 done: scheduled!');
 
         final p = await SharedPreferences.getInstance();
         await p.setBool(_Keys.notifEnabled, true);
         if (mounted) setState(() => _notifEnabled = true);
-        _toast('Step 4: COMPLETE ✓');
+       // _toast('Step 4: COMPLETE ✓');
 
       } else {
         await NotificationService.instance.cancelAll();
         final p = await SharedPreferences.getInstance();
         await p.setBool(_Keys.notifEnabled, false);
         if (mounted) setState(() => _notifEnabled = false);
-        _toast('Notifications OFF');
+       // _toast('Notifications OFF');
       }
     } catch (e, stack) {
       _toast('ERROR: $e');
@@ -120,8 +121,8 @@ class _SettingsNotificationsScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Not now' ,  style: TextStyle(
-              color: Colors.grey,
+            child: Text('Not now', style: TextStyle(
+              color: AppColors.onSurface.withValues(alpha: 0.6),
             ), ),
           ),
           FilledButton(
@@ -180,8 +181,8 @@ class _SettingsNotificationsScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Not now'  ,  style: TextStyle(
-              color: Colors.grey,
+            child: Text('Not now', style: TextStyle(
+              color: AppColors.onSurface.withValues(alpha: 0.6),
             ), ),
           ),
           FilledButton(
@@ -200,9 +201,9 @@ class _SettingsNotificationsScreenState
                   .canScheduleExactAlarms();
 
               if (ok) {
-                await NotificationService.instance.scheduleWeekly(
+                await NotificationService.instance.scheduleDaily(
                   hour: _notifTime.hour,
-                  minute: _notifTime.minute,
+                  minute: _notifTime.minute
                 );
 
                 final p = await SharedPreferences.getInstance();
@@ -247,9 +248,9 @@ class _SettingsNotificationsScreenState
       setState(() => _notifTime = picked);
       // Reschedule only if notifications are currently enabled.
       if (_notifEnabled) {
-        await NotificationService.instance.scheduleWeekly(
+        await NotificationService.instance.scheduleDaily(
           hour: picked.hour,
-          minute: picked.minute,
+          minute: picked.minute
         );
       }
     }
@@ -263,17 +264,13 @@ class _SettingsNotificationsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        title: Text('Settings', style: theme.textTheme.titleLarge,),
+        title: const Text('Settings'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -315,7 +312,6 @@ class _SettingsNotificationsScreenState
               Container(
                 clipBehavior: Clip.hardEdge,
                 decoration: BoxDecoration(
-                  color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
@@ -325,7 +321,11 @@ class _SettingsNotificationsScreenState
                     ),
                   ],
                 ),
-                child: Column(
+                // Material (not a DecoratedBox color) so ListTile/InkWell
+                // splashes are visible on top of the white background.
+                child: Material(
+                  color: Colors.white,
+                  child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Toggle row
@@ -471,8 +471,11 @@ class _SettingsNotificationsScreenState
                       ),
                     ),
                   ],
+                  ),
                 ),
               ),
+
+
 
               const SizedBox(height: 16),
 

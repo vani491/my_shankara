@@ -6,7 +6,10 @@ import 'package:http/http.dart' as http;
 import 'package:myshankara/theme/app_theme.dart';
 import '../theme/colors.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/diya_service.dart';
 import '../services/access_service.dart';
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,17 +22,16 @@ import '../services/access_service.dart';
 //   • Body text       → AppColors.onBackground
 //   • Accent / icons  → AppColors.accent  (saffron)
 //   • Cards           → AppColors.surface bg + AppColors.outline border
-//   • CTA buttons     → AppColors.accent  (consistent across ALL steps)
+//   • CTA buttons     → per-step accent color (saffron/indigo/green/terracotta),
+//                       intentionally varies by step — see _ctaColors below
 // ─────────────────────────────────────────────────────────────────────────────
 
 class DarshanScreen extends StatefulWidget {
   final VoidCallback? onDarshanComplete;
-  final VoidCallback? onGoHome;
 
   const DarshanScreen({
     super.key,
     this.onDarshanComplete,
-    this.onGoHome,
   });
 
   @override
@@ -64,18 +66,22 @@ class _DarshanScreenState extends State<DarshanScreen>
   // ── CTA labels & per-step colors ──────────────────────────────────────────
   static const _ctaLabels = ['Understand', 'Reflect', 'Offer', 'Complete Darshan'];
   static const _ctaColors = [
-    Color(0xFFF5A623), // saffron    — Step 0: Story
-    Color(0xFF5C5DA6), // indigo     — Step 1: Interpretation
-    Color(0xFF4A7C59), // green      — Step 2: Reflection
-    Color(0xFFC94E2D), // terracotta — Step 3: Diya
+    AppColors.darshanStepStory,
+    AppColors.darshanStepInterpretation,
+    AppColors.darshanStepReflection,
+    AppColors.darshanStepDiya,
   ];
+  static const _stepLabels = ['Story', 'Insight', 'Reflect', 'Diya'];
+
+  static const _hintSeenPrefKey = 'darshan_swipe_hint_seen';
+  bool _showSwipeHint = false;
 
   // ── Background images per step ─────────────────────────────────────────────
   static const _backgrounds = [
-    'assets/back1.webp',
-    'assets/back3.webp',
-    'assets/back2.webp',
-    'assets/back1.webp',
+    'assets/backgrounds/back1.webp',
+    'assets/backgrounds/back3.webp',
+    'assets/backgrounds/back2.webp',
+    'assets/backgrounds/back1.webp',
   ];
 
   @override
@@ -99,6 +105,23 @@ class _DarshanScreenState extends State<DarshanScreen>
         setState(() => _diyaLit = true);
       }
     });
+
+    // Show the "swipe or tap to continue" hint only the very first time
+    // a user goes through Darshan — not on every screen, every day.
+    SharedPreferences.getInstance().then((prefs) {
+      final seen = prefs.getBool(_hintSeenPrefKey) ?? false;
+      if (mounted && !seen) {
+        setState(() => _showSwipeHint = true);
+      }
+    });
+  }
+
+  void _dismissSwipeHint() {
+    if (!_showSwipeHint) return;
+    setState(() => _showSwipeHint = false);
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setBool(_hintSeenPrefKey, true),
+    );
   }
 
 
@@ -164,14 +187,14 @@ class _DarshanScreenState extends State<DarshanScreen>
         curve: Curves.easeInOutCubic,
       );
     } else {
-      widget.onGoHome?.call();
+      context.pop();
     }
   }
 
   void _handleCTA() {
     if (_currentStep == 3) {
       if (!_isGuest) widget.onDarshanComplete?.call();
-      widget.onGoHome?.call();
+      context.pop();
     } else {
       _goNext();
     }
@@ -208,140 +231,79 @@ class _DarshanScreenState extends State<DarshanScreen>
   void _showGuestDialog() {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            image: const DecorationImage(
-              image: AssetImage('assets/stir_popup_background.png'), // same background
-              fit: BoxFit.cover,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('🪔', style: TextStyle(fontSize: 52)),
+                const SizedBox(height: 16),
+
+                Text(
+                  'Light Your Diya Daily.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  'Every flame is an act of devotion.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppColors.onBackground.withValues(alpha: 0.7),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                Text(
+                  'Would you like to begin your seva journey?',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.onBackground,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 28),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      context.go('/login');
+                    },
+                    child: const Text('Sign up to track seva'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      HapticFeedback.mediumImpact();
+                      setState(() => _diyaAnimating = true);
+                      Future.delayed(const Duration(milliseconds: 600), () {
+                        if (mounted) {
+                          setState(() { _diyaLit = true; _diyaAnimating = false; });
+                        }
+                      });
+                    },
+                    child: const Text('Maybe later'),
+                  ),
+                ),
+              ],
             ),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.35),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Emoji
-                  const Text('🪔', style: TextStyle(fontSize: 52)),
-                  const SizedBox(height: 16),
-
-                  // Title
-                  const Text(
-                    'Light Your Diya Daily.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A2E),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Subtitle
-                  Text(
-                    'Every flame is an act of devotion.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Question
-                  const Text(
-                    'Would you like to begin your seva journey?',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A1A2E),
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Primary button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        context.go('/login');
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.accent,
-                        foregroundColor: AppColors.onAccent,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 18,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Sign up to track seva',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Secondary button
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: ()
-                      {
-                        Navigator.pop(ctx);
-                        HapticFeedback.mediumImpact();
-                        setState(() => _diyaAnimating = true);
-                        Future.delayed(const Duration(milliseconds: 600), () {
-                          if (mounted) {
-                            setState(() { _diyaLit = true; _diyaAnimating = false; });
-                          }
-                        });
-                      },
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.white.withValues(alpha: 0.6),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 4,
-                        shadowColor: Colors.black.withValues(alpha: 0.15),
-                      ),
-                      child: const Text(
-                        'Maybe later',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF444444),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -373,17 +335,20 @@ class _DarshanScreenState extends State<DarshanScreen>
           SafeArea(
             child: Column(
               children: [
-                _DarshanAppBar(onBack: _goPrev, currentStep: _currentStep),
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  child: _ProgressDots(currentStep: _currentStep),
+                _DarshanHeader(
+                  onBack: _goPrev,
+                  currentStep: _currentStep,
+                  stepColors: _ctaColors,
+                  stepLabel: _stepLabels[_currentStep],
                 ),
 
                 Expanded(
                   child: PageView(
                     controller: _pageController,
-                    onPageChanged: (i) => setState(() => _currentStep = i),
+                    onPageChanged: (i) {
+                      setState(() => _currentStep = i);
+                      _dismissSwipeHint();
+                    },
                     children: [
                       _StoryScreen(story: _story),
                       _InterpretationScreen(insight: _insight),
@@ -408,8 +373,8 @@ class _DarshanScreenState extends State<DarshanScreen>
                   step: _currentStep,
                   ctaLabel: _ctaLabels[_currentStep],
                   ctaColor: _ctaColors[_currentStep],
+                  showHint: _showSwipeHint,
                   onCTA: _handleCTA,
-                  onReturnHome: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
@@ -421,92 +386,112 @@ class _DarshanScreenState extends State<DarshanScreen>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// APP BAR
+// HEADER — back button + step label/counter + progress bar, one compact block
+// (progress color tracks the current step's theme color, same as the CTA)
 // ─────────────────────────────────────────────────────────────────────────────
-class _DarshanAppBar extends StatelessWidget {
+class _DarshanHeader extends StatelessWidget {
   final VoidCallback onBack;
   final int currentStep;
+  final List<Color> stepColors;
+  final String stepLabel;
 
-  const _DarshanAppBar({required this.onBack, required this.currentStep});
+  const _DarshanHeader({
+    required this.onBack,
+    required this.currentStep,
+    required this.stepColors,
+    required this.stepLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Stack(
-        alignment: Alignment.center,
+      padding: const EdgeInsets.fromLTRB(16, 10, 20, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Centered title
-          Text('Daily Darshan', style: theme.textTheme.titleLarge),
-
-          // Back button — left-pinned
-          Align(
-            alignment: Alignment.centerLeft,
-            child: GestureDetector(
-              onTap: onBack,
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.outline.withValues(alpha: 0.5),
-                    width: 1,
+          GestureDetector(
+            onTap: onBack,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.outline.withValues(alpha: 0.5),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.onBackground.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                ],
+              ),
+              child: Icon(
+                Icons.arrow_back_rounded,
+                size: 18,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 300),
+                      style: theme.textTheme.titleMedium!.copyWith(
+                        color: stepColors[currentStep],
+                        fontWeight: FontWeight.w700,
+                      ),
+                      child: Text(stepLabel),
+                    ),
+                    Text(
+                      '${currentStep + 1} / 4',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.onSurface.withValues(alpha: 0.45),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
-                child: Icon(
-                  Icons.arrow_back_rounded,
-                  size: 20,
-                  color: AppColors.primary,
+                const SizedBox(height: 6),
+                Row(
+                  children: List.generate(4, (i) {
+                    final isActive = i == currentStep;
+                    final isPast = i < currentStep;
+                    return Expanded(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? stepColors[i]
+                              : isPast
+                              ? stepColors[i].withValues(alpha: 0.5)
+                              : AppColors.outline,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    );
+                  }),
                 ),
-              ),
+              ],
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PROGRESS DOTS
-// ─────────────────────────────────────────────────────────────────────────────
-class _ProgressDots extends StatelessWidget {
-  final int currentStep;
-  const _ProgressDots({required this.currentStep});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: List.generate(4, (i) {
-        final isActive = i == currentStep;
-        final isPast = i < currentStep;
-        return Expanded(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            height: 4,
-            decoration: BoxDecoration(
-              color: isActive
-                  ? AppColors.accent
-                  : isPast
-                  ? AppColors.accent.withValues(alpha: 0.4)
-                  : AppColors.outline,
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
-      }),
     );
   }
 }
@@ -589,7 +574,7 @@ class _ContentCard extends StatelessWidget {
         border: Border.all(color: AppColors.outline.withValues(alpha: 0.55)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: AppColors.onBackground.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -636,7 +621,7 @@ class _LotusDivider extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+          child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.9)),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -649,12 +634,75 @@ class _LotusDivider extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+          child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.9)),
         ),
       ],
     );
   }
 
+}
+
+/// Markdown style sheet shared by the Story and Insight screens, mapped onto
+/// this screen's AppColors design system (see the header comment for the
+/// palette rules) rather than the Material theme's colorScheme.
+MarkdownStyleSheet _darshanMarkdownStyleSheet(BuildContext context) {
+  final theme = Theme.of(context);
+  final bodyColor = AppColors.onBackground;
+
+  return MarkdownStyleSheet(
+    p: theme.textTheme.bodyMedium?.copyWith(color: bodyColor, height: 1.6),
+    h1: theme.textTheme.titleLarge?.copyWith(
+      color: AppColors.primary,
+      fontWeight: FontWeight.w800,
+    ),
+    h2: theme.textTheme.titleMedium?.copyWith(
+      color: AppColors.primary,
+      fontWeight: FontWeight.w800,
+    ),
+    h3: theme.textTheme.titleSmall?.copyWith(
+      color: AppColors.primary,
+      fontWeight: FontWeight.w700,
+    ),
+    strong: theme.textTheme.bodyMedium?.copyWith(
+      color: bodyColor,
+      fontWeight: FontWeight.w700,
+    ),
+    em: theme.textTheme.bodyMedium?.copyWith(
+      color: bodyColor,
+      fontStyle: FontStyle.italic,
+    ),
+    listBullet: theme.textTheme.bodyMedium?.copyWith(color: bodyColor),
+    a: theme.textTheme.bodyMedium?.copyWith(
+      color: AppColors.link,
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+    ),
+    blockquote: theme.textTheme.bodyMedium?.copyWith(
+      color: bodyColor.withValues(alpha: 0.75),
+      fontStyle: FontStyle.italic,
+      height: 1.5,
+    ),
+    blockquoteDecoration: BoxDecoration(
+      color: AppColors.accent.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(8),
+      border: Border(left: BorderSide(color: AppColors.accent, width: 3)),
+    ),
+    code: theme.textTheme.bodyMedium?.copyWith(
+      fontFamily: 'monospace',
+      backgroundColor: AppColors.surface,
+      color: bodyColor,
+    ),
+    horizontalRuleDecoration: BoxDecoration(
+      border: Border(
+        top: BorderSide(color: AppColors.outline.withValues(alpha: 0.5)),
+      ),
+    ),
+  );
+}
+
+void _launchDarshanLink(String? href) {
+  if (href == null) return;
+  launchUrlString(href);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -683,17 +731,15 @@ class _StoryScreen extends StatelessWidget {
 
           const SizedBox(height: 28),
 
-          // Story paragraphs — all left-aligned for readability
+          // Story — rendered as Markdown (server sends it in Markdown format)
           if (story.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: Text(
-                story,
-                textAlign: TextAlign.left,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.onBackground,
-                  height: 1.6,
-                ),
+              child: MarkdownBody(
+                data: story,
+                selectable: true,
+                styleSheet: _darshanMarkdownStyleSheet(context),
+                onTapLink: (text, href, title) => _launchDarshanLink(href),
               ),
             ),
 
@@ -737,7 +783,7 @@ class _StoryScreen extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: Image.asset(
-              'assets/screen-1.webp',
+              'assets/onboarding/screen-1.webp',
               width: double.infinity,
               height: 140,
               fit: BoxFit.cover,
@@ -777,16 +823,15 @@ class _InterpretationScreen extends StatelessWidget {
 
           const SizedBox(height: 28),
 
-          // Insight paragraphs — left-aligned for readability
+          // Insight — rendered as Markdown (server sends it in Markdown format)
           if (insight.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: Text(
-                insight,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.onBackground,
-                  height: 1.6,
-                ),
+              child: MarkdownBody(
+                data: insight,
+                selectable: true,
+                styleSheet: _darshanMarkdownStyleSheet(context),
+                onTapLink: (text, href, title) => _launchDarshanLink(href),
               ),
             ),
 
@@ -825,7 +870,7 @@ class _InterpretationScreen extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: Image.asset(
-              'assets/2ndpaeg.png',
+              'assets/onboarding/2ndpaeg.png',
               width: double.infinity,
               height: 180,
               fit: BoxFit.cover,
@@ -906,7 +951,7 @@ class _ReflectionBlessingScreen extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(14),
             child: Image.asset(
-              'assets/screen3.png',
+              'assets/onboarding/screen3.png',
               width: double.infinity,
               height: 180,
               fit: BoxFit.cover,
@@ -1002,8 +1047,8 @@ class _DiyaScreen extends StatelessWidget {
               duration: const Duration(milliseconds: 600),
               child: Image.asset(
                 diyaLit
-                    ? 'assets/diya-darsan.png'
-                    : 'assets/diya-darsan-unlit.png',
+                    ? 'assets/diya/diya-darsan.png'
+                    : 'assets/diya/diya-darsan-unlit.png',
                 key: ValueKey(diyaLit),
                 width: double.infinity,
                 height: 220,
@@ -1026,11 +1071,11 @@ class _DiyaScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              icon: Image.asset('assets/fire.png', width: 22, height: 22),
+              icon: Image.asset('assets/diya/fire.png', width: 22, height: 22),
               label: Text(
                 diyaLit ? 'Diya Lit ✓' : 'Light Your Diya',
                 style: theme.textTheme.bodyLarge?.copyWith(
-                  color: Colors.white,
+                  color: AppColors.onAccent,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1049,7 +1094,7 @@ class _DiyaScreen extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12), // match your card radius
                     child: Image.asset(
-                      'assets/sunrise_background.png',
+                      'assets/backgrounds/sunrise_background.png',
                       fit: BoxFit.cover,
                     ),
                   ),
@@ -1060,10 +1105,10 @@ class _DiyaScreen extends StatelessWidget {
                   child: Column(
                     children: [
                       Image.asset(
-                        'assets/sunrise.png',
+                        'assets/icons/sunrise.png',
                         width: 30,
                         height: 30,
-                        color: Colors.orange,
+                        color: AppColors.accent,
                         colorBlendMode: BlendMode.srcIn, //  applies color only to non-transparent pixels
                       ),
 
@@ -1104,15 +1149,15 @@ class _DarshanCTA extends StatelessWidget {
   final int step;
   final String ctaLabel;
   final Color ctaColor;
+  final bool showHint;
   final VoidCallback onCTA;
-  final VoidCallback onReturnHome;
 
   const _DarshanCTA({
     required this.step,
     required this.ctaLabel,
     required this.ctaColor,
+    required this.showHint,
     required this.onCTA,
-    required this.onReturnHome,
   });
 
   @override
@@ -1120,7 +1165,7 @@ class _DarshanCTA extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+      padding: const EdgeInsets.fromLTRB(24, 10, 24, 14),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(color: AppColors.outline.withValues(alpha: 0.5)),
@@ -1146,7 +1191,7 @@ class _DarshanCTA extends StatelessWidget {
                   Text(
                     ctaLabel,
                     style: theme.textTheme.bodyLarge?.copyWith(
-                      color: Colors.white,
+                      color: AppColors.onPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1157,22 +1202,28 @@ class _DarshanCTA extends StatelessWidget {
                         ? Icons.check_rounded
                         : Icons.arrow_forward_rounded,
                     size: 18,
-                    color: Colors.white,
+                    color: AppColors.onPrimary,
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          step < 3
-              ? Text(
-            'Swipe left or tap to continue',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: AppColors.onSurface.withValues(alpha: 0.45),
-              fontSize: 12,
-            ),
-          )
-              :  const SizedBox.shrink(),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+            child: (showHint && step < 3)
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Swipe left or tap to continue',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.onSurface.withValues(alpha: 0.45),
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
         ],
       ),
     );

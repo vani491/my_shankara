@@ -7,38 +7,6 @@ import 'ba_create_account.dart';
 
 import '../screens/existing_user_login.dart';
 
-@immutable
-class BrandExtension extends ThemeExtension<BrandExtension> {
-  final Color accentButton;
-  final Color surfaceCard;
-  final Color primary;
-
-  const BrandExtension({
-    required this.accentButton,
-    required this.surfaceCard,
-    required this.primary
-  });
-
-  @override
-  BrandExtension copyWith({Color? accentButton, Color? surfaceCard}) =>
-      BrandExtension(
-        accentButton: accentButton ?? this.accentButton,
-        surfaceCard: surfaceCard ?? this.surfaceCard,
-        primary: AppColors.primary,
-      );
-
-  @override
-  BrandExtension lerp(ThemeExtension<BrandExtension>? other, double t) {
-    if (other is! BrandExtension) return this;
-    return BrandExtension(
-      accentButton: Color.lerp(accentButton, other.accentButton, t)!,
-      surfaceCard: Color.lerp(surfaceCard, other.surfaceCard, t)!,
-      primary: Color.lerp(primary, other.primary, t)!,
-    );
-  }
-}
-
-
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
@@ -46,7 +14,6 @@ class LoginScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = theme.extension<BrandExtension>();
 
     return Scaffold(
       backgroundColor: cs.surface,
@@ -61,7 +28,7 @@ class LoginScreen extends StatelessWidget {
                 children: [
                   // Top image
                   Image.asset(
-                    'assets/Logo-Trans.png',
+                    'assets/branding/Logo-Trans.png',
                     height: 150,
                     fit: BoxFit.contain,
                   ),

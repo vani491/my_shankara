@@ -1,58 +1,49 @@
 {
   "project_info": {
-    "project_number": "363351531471",
-    "project_id": "myshankara-app",
-    "storage_bucket": "myshankara-app.firebasestorage.app"
+    "project_number": "682644550074",
+    "project_id": "myshankara-49e84",
+    "storage_bucket": "myshankara-49e84.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:363351531471:android:5f1641822ff266e5617cba",
+        "mobilesdk_app_id": "1:682644550074:android:8f2b9f6d88632bdba3ed83",
         "android_client_info": {
-          "package_name": "com.example.myshankara"
+          "package_name": "com.zeroomni.myshankara"
         }
       },
       "oauth_client": [
         {
-          "client_id": "363351531471-0fuerui13uv84vo5l3rnvaq4t90uiv9s.apps.googleusercontent.com",
+          "client_id": "682644550074-ste12ip26nmoj1m11gbpt452pnuh8fmk.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.example.myshankara",
-            "certificate_hash": "c607ae1b10fa1f90cd19cdaecb19504aa57da818"
+            "package_name": "com.zeroomni.myshankara",
+            "certificate_hash": "13108951a8ba9e130678a5ed69b2cb0daaf83e17"
           }
         },
         {
-          "client_id": "363351531471-438jmv9hs995eh2ipaue76ob74o1gugm.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.myshankara",
-            "certificate_hash": "fa00197b28a99485c313e0041ac9574d1df24191"
-          }
-        },
-        {
-          "client_id": "363351531471-b1fbmgj2icd897367spckpv2jnhl7tno.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.myshankara",
-            "certificate_hash": "a622de10e5f8b9e61a2b18f818d24feaa6c18af6"
-          }
-        },
-        {
-          "client_id": "363351531471-2jvr6bf58894c32qg4rqlnu0usi0ritp.apps.googleusercontent.com",
+          "client_id": "682644550074-r4la8fc6tb4qed53eggl663jqvgjv8js.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBPbaB4fLB7rSZD9ElYxPhl9obY_P3_LwM"
+          "current_key": "AIzaSyAJZTunXD48eqZT7X7FP-_mSwzECDdAR0I"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "363351531471-2jvr6bf58894c32qg4rqlnu0usi0ritp.apps.googleusercontent.com",
+              "client_id": "682644550074-r4la8fc6tb4qed53eggl663jqvgjv8js.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "682644550074-uigdnh86er593gqdb0pjsr53sq30ea44.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.zeroomni.myshankara"
+              }
             }
           ]
         }

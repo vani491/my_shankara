@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:mailer/mailer.dart';
+import 'package:mailer/smtp_server.dart';
+import 'package:myshankara/theme/colors.dart';
 
 /// Contact Support screen
 /// - Name & Email: editable, auto-filled for signed-in users when available
@@ -7,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 /// - Guests can use it fully (no sign-in required)
 class HelpSupportScreen extends StatefulWidget {
   const HelpSupportScreen({super.key});
+
   static const routeName = '/support';
 
   @override
@@ -61,20 +65,35 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
 
     setState(() => _sending = true);
     try {
-      // TODO: Wire to backend / Firestore / email service
-      await Future.delayed(const Duration(milliseconds: 600));
+      final smtpServer = gmail('myshankara.ai@gmail.com', 'rqyc tgxy jeng qroa');
+
+      final message = Message()
+      // IMPORTANT: "from" address must stay the authenticated Gmail
+      // account, otherwise Gmail silently rewrites it and the sender
+      // shows up as "me" / the account owner instead of the user.
+      // The display NAME can still be the user's name.
+        ..from = Address('myshankara.ai@gmail.com', _nameCtrl.text.trim())
+        ..recipients.add('myshankara.ai@gmail.com')
+      // So hitting "Reply" in the inbox goes straight to the user,
+      // not back to the app's own Gmail account.
+        ..headers['Reply-To'] = _emailCtrl.text.trim()
+        ..subject = 'My Shankara Support: ${_nameCtrl.text.trim()}'
+        ..text = '''Name: ${_nameCtrl.text.trim()} 
+                    Email: ${_emailCtrl.text.trim()}
+                    Message: ${_messageCtrl.text.trim()} ''';
+
+      await send(message, smtpServer);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Your message has been received with gratitude. '
-                'We will respond soon.',
+            'Your message has been received. We will respond soon.',
           ),
         ),
       );
       _messageCtrl.clear();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -95,11 +114,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        title:  Text('Contact Support',  style: tt.titleLarge),
-        centerTitle: true,
+        title: const Text('Contact Support'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -118,10 +133,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        cs.primary,
-                        cs.primary.withValues(alpha: 0.85),
-                      ],
+                      colors: [cs.primary, cs.primary.withValues(alpha: 0.85)],
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -131,9 +143,9 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       ),
                     ],
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.support_agent_outlined,
-                    color: Colors.white,
+                    color: cs.onPrimary,
                     size: 40,
                   ),
                 ),
@@ -158,8 +170,9 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
-                    border:
-                    Border.all(color: cs.outline.withValues(alpha: 0.18)),
+                    border: Border.all(
+                      color: cs.outline.withValues(alpha: 0.18),
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: cs.primary.withValues(alpha: 0.05),
@@ -182,8 +195,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                           hint: 'Your name',
                           icon: Icons.person_outline,
                         ),
-                        validator: (v) =>
-                        (v == null || v.trim().isEmpty)
+                        validator: (v) => (v == null || v.trim().isEmpty)
                             ? 'Please enter your name'
                             : null,
                         onChanged: (_) => setState(() {}),
@@ -242,8 +254,11 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.privacy_tip_outlined,
-                              size: 16, color: cs.primary),
+                          Icon(
+                            Icons.privacy_tip_outlined,
+                            size: 16,
+                            color: cs.primary,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -264,9 +279,11 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                 // ── Submit ──
                 SizedBox(
                   width: double.infinity,
+                  height: 54,
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      // Per-step color: saffron → indigo → green → terracotta
+                      backgroundColor: AppColors.accent,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
@@ -276,14 +293,14 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
                         ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child:
-                      CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     )
                         : const Icon(Icons.send_rounded),
                     label: Text(
                       _sending ? 'Sending…' : 'Send Message',
                       style: const TextStyle(
                         fontSize: 16,
+                        color: AppColors.primary,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -322,8 +339,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
       prefixIcon: Icon(icon, size: 20),
       filled: true,
       fillColor: cs.surfaceContainerHighest.withValues(alpha: 0.3),
-      contentPadding:
-      const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: cs.outline.withValues(alpha: 0.3)),

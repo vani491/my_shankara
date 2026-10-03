@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:go_router/go_router.dart';
+import '../app_drawer.dart';
+import '../theme/colors.dart';
 import 'ab_home_screen.dart';
 import 'aa_guru_chatbot.dart';
-import 'ac_darshan_screen.dart';
-
-const darkBg = Color(0xFF0A003D);
-const accent = Color(0xFFFF8C00);
+import 'ac_darshan_intro_screen.dart';
 
 class RootNav extends StatefulWidget {
   final int initialIndex;
@@ -18,6 +18,23 @@ class RootNav extends StatefulWidget {
 class _RootNavState extends State<RootNav> {
   late int _index;
   final _homeKey = GlobalKey<HomeScreenState>();
+  // Single Scaffold/Drawer shared by every tab — the IndexedStack keeps each
+  // tab's own widget state alive across switches, so per-tab Scaffolds each
+  // ended up with their own drawer-open state (stale drawer reopening bug).
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  void _openDrawer() => _scaffoldKey.currentState?.openDrawer();
+
+  // The 4-step guided experience lives on its own pushed route (no bottom
+  // nav, no drawer — exit only by completing it or the top-left back arrow).
+  // `extra` lets the route call back into Home's diya-stats refresh without
+  // Home needing to know how it was reached (tab Start button, or directly).
+  void _goToDarshanFlow() {
+    context.push(
+      '/darshan',
+      extra: () => _homeKey.currentState?.fetchDiyaStats(),
+    );
+  }
   @override
   void initState() {
     super.initState();
@@ -30,7 +47,7 @@ class _RootNavState extends State<RootNav> {
       width: 28,
       height: 28,
       colorFilter: ColorFilter.mode(
-        isActive ? accent : Colors.white,
+        isActive ? AppColors.navBarActiveIcon : Colors.white,
         BlendMode.srcIn,
       ),
     );
@@ -42,15 +59,14 @@ class _RootNavState extends State<RootNav> {
       HomeScreen(
         key: _homeKey,
         onGoToChat: () => setState(() => _index = 2),
-        onGoToDarshan: () => setState(() => _index = 1),
+        onGoToDarshan: _goToDarshanFlow, // "Begin Darshan" skips the intro tab
+        onOpenDrawer: _openDrawer,
       ),
-      DarshanScreen(
-        onGoHome: () => setState(() => _index = 0),
-        onDarshanComplete: () {
-          _homeKey.currentState?.fetchDiyaStats();  // ← this is the key line
-        },
+      DarshanIntroScreen(
+        onOpenDrawer: _openDrawer,
+        onStart: _goToDarshanFlow,
       ),
-      const ChatbotPage(),
+      ChatbotPage(onOpenDrawer: _openDrawer),
     ];
 
     return PopScope(
@@ -62,10 +78,14 @@ class _RootNavState extends State<RootNav> {
         }
       },
       child: Scaffold(
-        backgroundColor: darkBg,
+        key: _scaffoldKey,
+        backgroundColor: AppColors.navBarBackground,
+        drawer: AppDrawer(
+          onProfileUpdated: () => _homeKey.currentState?.refreshDisplayName(),
+        ),
         body: IndexedStack(index: _index, children: pages),
         bottomNavigationBar: Theme(
-          data: Theme.of(context).copyWith(canvasColor: darkBg),
+          data: Theme.of(context).copyWith(canvasColor: AppColors.navBarBackground),
           child: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _index,
@@ -75,29 +95,29 @@ class _RootNavState extends State<RootNav> {
                 _homeKey.currentState?.refreshDisplayName();
               }
             },
-            selectedItemColor: accent,
+            selectedItemColor: AppColors.navBarActiveIcon,
             unselectedItemColor: Colors.white,
             items: [
               BottomNavigationBarItem(
                 icon: _navIcon(
-                  filled: 'assets/root-nav-icon/filled-home.svg',
-                  unfilled: 'assets/root-nav-icon/unfilled-home.svg',
+                  filled: 'assets/icons/nav/filled-home.svg',
+                  unfilled: 'assets/icons/nav/unfilled-home.svg',
                   isActive: _index == 0,
                 ),
                 label: 'Home',
               ),
               BottomNavigationBarItem(
                 icon: _navIcon(
-                  filled: 'assets/root-nav-icon/filled-lotus.svg',
-                  unfilled: 'assets/root-nav-icon/unfilled-lotus.svg',
+                  filled: 'assets/icons/nav/filled-lotus.svg',
+                  unfilled: 'assets/icons/nav/unfilled-lotus.svg',
                   isActive: _index == 1,
                 ),
                 label: 'Darshan',
               ),
               BottomNavigationBarItem(
                 icon: _navIcon(
-                  filled: 'assets/root-nav-icon/filled-chat.svg',
-                  unfilled: 'assets/root-nav-icon/unfilled-chat.svg',
+                  filled: 'assets/icons/nav/filled-chat.svg',
+                  unfilled: 'assets/icons/nav/unfilled-chat.svg',
                   isActive: _index == 2,
                 ),
                 label: 'Chat',

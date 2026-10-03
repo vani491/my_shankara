@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../main.dart';
 import '../services/user_name_cache.dart';
+import '../theme/colors.dart';
 
 
 class ProfileBasicsPage extends StatefulWidget {
@@ -177,9 +178,6 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
         leading: widget.isEditMode
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
@@ -189,11 +187,7 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
                 icon: const Icon(Icons.close),
                 onPressed: () => deleteUnverifiedAccount(),
               ),
-        title: Text(
-          widget.isEditMode ? 'Edit Profile' : 'About You',
-          style: theme.textTheme.titleLarge,
-        ),
-        centerTitle: true,
+        title: Text(widget.isEditMode ? 'Edit Profile' : 'About You'),
       ),
       body: SafeArea(
         child: widget.isEditMode
@@ -298,7 +292,7 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
-                          color: Colors.white,
+                          color: AppColors.onAccent,
                           strokeWidth: 2,
                         ),
                       )
@@ -461,7 +455,7 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
                     Text(
                       'MyShankara is for seekers 18+',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey[700],
+                        color: AppColors.onBackground.withValues(alpha: 0.65),
                       ),
                     ),
 
@@ -475,7 +469,7 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
-                                  color: Colors.white,
+                                  color: AppColors.onAccent,
                                   strokeWidth: 2,
                                 ),
                               )

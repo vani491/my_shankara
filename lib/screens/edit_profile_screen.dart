@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import '../theme/colors.dart';
 
 
 class EditProfileScreen extends StatefulWidget {
@@ -245,15 +246,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         appBar: AppBar(
           title: const Text('Profile'),
         ),
-        // appBar: AppBar(
-          // title: const Text('Edit profile'),
-          // actions: [
-          //   TextButton(
-              // onPressed: _dirty && !_saving ? _save : null,
-              // child: const Text('Done'),
-            // ),
-          // ],
-        // ),
         body: Form(
           key: _formKey,
           onChanged: _markDirty,
@@ -483,7 +475,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             boxShadow: [
               if (_dirty)
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: AppColors.onBackground.withValues(alpha: 0.08),
                   blurRadius: 12,
                   offset: const Offset(0, -2),
                 ),

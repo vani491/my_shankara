@@ -1,2 +1,6 @@
+# flutter_local_notifications - TypeToken fix
 -keep class com.dexterous.** { *; }
--keep class androidx.work.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken

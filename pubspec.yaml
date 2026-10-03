@@ -30,20 +30,22 @@ dependencies:
   timezone: ^0.9.4
   app_settings: ^5.1.1
   fluttertoast: ^8.2.4
+  mailer: ^6.1.0
+  flutter_markdown_plus: ^1.0.12
 
 flutter_icons:
   android: true
   ios: true
-  image_path: assets/logo.png
+  image_path: assets/branding/logo.png
 
 flutter_native_splash:
   color: "#FFF8F0"
   color_dark: "#F9F7FF"
-  image: assets/Splash-icon-1152.png
+  image: assets/branding/splash-logo.png
   android_12:
     color: "#FFF8F0"
     color_dark: "#F9F7FF"
-    image: assets/Splash-icon-1152.png
+    image: assets/branding/splash-logo.png
 
 dev_dependencies:
   flutter_test:
@@ -55,50 +57,44 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/home-background.mp4
-    - assets/home-background.gif
-    - assets/home-background.jpg
-    - assets/Logo.png
-    - assets/onboarding/1.png
-    - assets/onboarding/2.png
-    - assets/onboarding/3.png
-    - assets/onboarding/4.png
-    - assets/SevaDiyaTracker.png
-    - assets/user-profile.webp
-    - assets/Logo-Trans.png
-    - assets/google-icon-logo.svg
-    - assets/apple-logo.svg
-    - assets/Guru-Chat.png
-    - assets/guruchatbg.png
-    - assets/om.png
-    - assets/home-page-container1-image.jpg
-    - assets/diya-lit.png
-    - assets/diya-nlit.png
-    - assets/Diya.gif
-    - assets/Diya.lottie
-    - assets/Diya.json
-    - assets/root-nav-icon/filled-chat.svg
-    - assets/root-nav-icon/filled-home.svg
-    - assets/root-nav-icon/filled-lotus.svg
-    - assets/root-nav-icon/unfilled-chat.svg
-    - assets/root-nav-icon/unfilled-home.svg
-    - assets/root-nav-icon/unfilled-lotus.svg
-    - assets/diya-darsan.png
-    - assets/diya-darsan-unlit.png
-    - assets/back1.webp
-    - assets/back2.webp
-    - assets/back3.webp
-    - assets/screen-1.webp
-    - assets/2ndpaeg.png
-    - assets/screen3.png
-    - assets/fire.png
-    - assets/diya_tracker_background.png
-    - assets/om_icon.png
-    - assets/sunrise_background.png
-    - assets/sunrise.png
-    - assets/stir_popup_background.png
-    - assets/stir_background.png
-    - assets/ic_user_profile.jpeg
+    - assets/branding/logo.png
+    - assets/branding/Logo-Trans.png
+    - assets/branding/splash-logo.png
+    - assets/backgrounds/home-background.jpg
+    - assets/backgrounds/home-page-container1-image.jpg
+    - assets/backgrounds/guruchatbg.png
+    - assets/backgrounds/diya_tracker_background.png
+    - assets/backgrounds/sunrise_background.png
+    - assets/backgrounds/stir_background.png
+    - assets/backgrounds/stir_popup_background.png
+    - assets/backgrounds/back1.webp
+    - assets/backgrounds/back2.webp
+    - assets/backgrounds/back3.webp
+    - assets/diya/diya-lit.png
+    - assets/diya/diya-nlit.png
+    - assets/diya/diya-darsan.png
+    - assets/diya/diya-darsan-unlit.png
+    - assets/diya/fire.png
+    - assets/onboarding/onboarding-1.png
+    - assets/onboarding/onboarding-2.png
+    - assets/onboarding/onboarding-3.png
+    - assets/onboarding/onboarding-4.png
+    - assets/onboarding/screen-1.webp
+    - assets/onboarding/screen3.png
+    - assets/onboarding/2ndpaeg.png
+    - assets/icons/om.png
+    - assets/icons/om_icon.png
+    - assets/icons/sunrise.png
+    - assets/icons/google-icon-logo.svg
+    - assets/icons/apple-logo.svg
+    - assets/icons/nav/filled-chat.svg
+    - assets/icons/nav/filled-home.svg
+    - assets/icons/nav/filled-lotus.svg
+    - assets/icons/nav/unfilled-chat.svg
+    - assets/icons/nav/unfilled-home.svg
+    - assets/icons/nav/unfilled-lotus.svg
+    - assets/images/Guru-Chat.png
+    - assets/images/ic_user_profile.jpeg
 
   fonts:
      - family: Samarkan

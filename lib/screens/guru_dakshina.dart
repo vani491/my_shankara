@@ -120,7 +120,6 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
@@ -134,10 +133,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        title:  Text('Guru Dakshina', style: theme.textTheme.titleLarge),
+        title: const Text('Guru Dakshina'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -454,7 +450,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
           Text(
             'MyShankara Membership',
             style: tt.titleMedium?.copyWith(
-              color: Colors.white,
+              color: AppColors.onPrimary,
               fontSize: 22,
               fontWeight: FontWeight.w600,
             ),
@@ -475,7 +471,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
               Text(
                 '/month',
                 style: tt.bodyMedium?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.85),
+                  color: AppColors.onPrimary.withValues(alpha: 0.85),
                 ),
               ),
             ],
@@ -484,7 +480,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
           Text(
             'Localized pricing shown automatically by Apple / Google.',
             style: tt.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.7),
+              color: AppColors.onPrimary.withValues(alpha: 0.7),
             ),
           ),
         ],

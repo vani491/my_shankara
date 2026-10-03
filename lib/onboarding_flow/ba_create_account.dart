@@ -21,11 +21,11 @@ class PasswordStrengthIndicator extends StatelessWidget {
   Color get _color {
     switch (strength) {
       case 0:
-        return Colors.red;
+        return AppColors.error;
       case 1:
-        return Colors.orange;
+        return AppColors.warning;
       default:
-        return Colors.green;
+        return AppColors.success;
     }
   }
 
@@ -119,7 +119,7 @@ class SocialSignInButton extends StatelessWidget {
   /// Convenience factory for Google style button
   factory SocialSignInButton.google({
     required VoidCallback onPressed,
-    String assetName = 'assets/google-icon-logo.svg',
+    String assetName = 'assets/icons/google-icon-logo.svg',
     String label = 'Continue with Google',
     Color outlineColor = const Color(0xFFE0E0E0),
     // double height = 52,
@@ -141,7 +141,7 @@ class SocialSignInButton extends StatelessWidget {
 
   factory SocialSignInButton.apple({
     required VoidCallback onPressed,
-    String assetName = 'assets/apple-logo.svg',
+    String assetName = 'assets/icons/apple-logo.svg',
     String label = 'Continue with Apple',
     // double height = 52,
     Key? key,
@@ -309,22 +309,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = theme.extension<BrandExtension>();
-    final cardColor = brand?.surfaceCard ?? cs.surface;
-    final primaryButtonColor = brand?.accentButton ?? cs.primary;
 
     return Scaffold(
       backgroundColor: cs.surface,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        leading: const BackButton(),
-        title: Text(
-          'Create Account',
-          style: theme.textTheme.titleLarge,
-        ),
-        centerTitle: true,
+        title: const Text('Create Account'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -452,17 +441,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white,
+                            AppColors.onAccent,
                           ),
                         ),
                       )
-                          : const Text(
-                        'Sign up',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                          : const Text('Sign up'),
                     ),
                   ),
 
@@ -601,7 +584,6 @@ class _LabeledFieldState extends State<_LabeledField> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = null;
 
     final isPasswordField = widget.obscure;
     print('Focus: ${_focusNode.hasFocus}, Text: "${widget.controller.text}", IsEmpty: ${widget.controller.text.isEmpty}');
@@ -628,7 +610,7 @@ class _LabeledFieldState extends State<_LabeledField> {
               borderRadius: BorderRadius.circular(14),
             ),
             focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: brand?.accentButton ?? cs.primary),
+              borderSide: BorderSide(color: cs.primary),
               borderRadius: BorderRadius.circular(14),
             ),
             errorBorder: OutlineInputBorder(

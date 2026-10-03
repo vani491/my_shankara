@@ -202,7 +202,7 @@ class _AppDrawerState extends State<AppDrawer> {
                 ),
                 child: const CircleAvatar(
                   radius: 32,
-                  backgroundImage: AssetImage('assets/ic_user_profile.jpeg'),
+                  backgroundImage: AssetImage('assets/images/ic_user_profile.jpeg'),
                 ),
               ),
               const SizedBox(width: 16),
@@ -216,7 +216,7 @@ class _AppDrawerState extends State<AppDrawer> {
                     Text(
                       _isGuest ? 'Welcome,' : 'Namaste,',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.85),
+                        color: AppColors.onPrimary.withValues(alpha: 0.85),
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -227,7 +227,7 @@ class _AppDrawerState extends State<AppDrawer> {
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                         fontSize: 22,
-                        color: Colors.white,
+                        color: AppColors.onPrimary,
                       ),
                     ),
                   ],

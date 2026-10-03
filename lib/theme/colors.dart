@@ -53,4 +53,14 @@ final class AppColors {
 
   // modal/backdrop overlay (translucent layer)
   static const Color scrim = Color(0x99000000);
+
+  // bottom navigation shell — deliberately dark, distinct from the ivory surface
+  static const Color navBarBackground = Color(0xFF0A003D);
+  static const Color navBarActiveIcon = Color(0xFFFF8C00);
+
+  // Darshan flow step indicators (Story / Interpretation / Reflection / Diya)
+  static const Color darshanStepStory = Color(0xFFF5A623);
+  static const Color darshanStepInterpretation = Color(0xFF5C5DA6);
+  static const Color darshanStepReflection = Color(0xFF4A7C59);
+  static const Color darshanStepDiya = Color(0xFFC94E2D);
 }

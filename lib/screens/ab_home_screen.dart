@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/screens/root_nav.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../app_drawer.dart';
 import '../main.dart';
 import '../model/mood_data.dart';
 import '../services/notification_service.dart';
@@ -19,7 +18,8 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onGoToChat;
   final VoidCallback? onGoToDarshan;
-  const HomeScreen({super.key, this.onGoToChat,this.onGoToDarshan,});
+  final VoidCallback? onOpenDrawer;
+  const HomeScreen({super.key, this.onGoToChat,this.onGoToDarshan,this.onOpenDrawer,});
 
   @override
   State<HomeScreen> createState() => HomeScreenState();
@@ -105,9 +105,9 @@ class HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text(
+            child: Text(
               'Not now',
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: AppColors.onSurface.withValues(alpha: 0.6)),
             ),
           ),
           FilledButton(
@@ -255,10 +255,10 @@ class HomeScreenState extends State<HomeScreen> {
 
     return AppLayout(
       title: 'Namaste, $_preferredName',
-      backgroundImage: 'assets/home-background.jpg',
+      backgroundImage: 'assets/backgrounds/home-background.jpg',
       backgroundOpacity: 0.6,
 
-      drawer: AppDrawer(onProfileUpdated: refreshDisplayName),
+      onMenuPressed: widget.onOpenDrawer,
       body: SafeArea(
           child: RefreshIndicator(
             onRefresh: () async {
@@ -286,17 +286,17 @@ class HomeScreenState extends State<HomeScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFFFF0),
+                      color: AppColors.background,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
+                          color: AppColors.onBackground.withValues(alpha: 0.08),
                           blurRadius: 3,
                           offset: const Offset(0, 1),
                         ),
                       ],
                       image: DecorationImage(
-                        image: AssetImage('assets/stir_background.png'), // or NetworkImage('https://...')
+                        image: AssetImage('assets/backgrounds/stir_background.png'), // or NetworkImage('https://...')
                         fit: BoxFit.cover, // cover, contain, fill, fitWidth, fitHeight, none
                       ),
                     ),
@@ -345,7 +345,7 @@ class HomeScreenState extends State<HomeScreen> {
                           // Background image — fills entire container
                           Positioned.fill(
                             child: Image.asset(
-                              'assets/home-page-container1-image.jpg',
+                              'assets/backgrounds/home-page-container1-image.jpg',
                               fit: BoxFit.cover,
                             ),
                           ),
@@ -397,7 +397,7 @@ class HomeScreenState extends State<HomeScreen> {
                                       Text(
                                         "Today's Darshan",
                                         style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: Colors.white,
+                                          color: AppColors.onPrimary,
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
@@ -416,7 +416,7 @@ class HomeScreenState extends State<HomeScreen> {
                                 Text(
                                   _teaserDarshan,
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: Colors.white
+                                      color: AppColors.onPrimary
                                   ),
                                 ),
                                 const SizedBox(height: 20),
@@ -458,13 +458,13 @@ class HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.brown,
+                          color: AppColors.onBackground.withValues(alpha: 0.15),
                           blurRadius: 3,
                           offset: Offset(0, 1),
                         ),
                       ],
                       image: DecorationImage(
-                          image: AssetImage('assets/diya_tracker_background.png'),
+                          image: AssetImage('assets/backgrounds/diya_tracker_background.png'),
                           fit: BoxFit.cover
                       ),
                     ),
@@ -505,7 +505,7 @@ class HomeScreenState extends State<HomeScreen> {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFFFFBF2).withValues(alpha: 0.4),
+                                color: AppColors.background.withValues(alpha: 0.4),
                                 borderRadius: BorderRadius.circular(12),
                                 boxShadow: [
                                   BoxShadow(
@@ -529,7 +529,7 @@ class HomeScreenState extends State<HomeScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.center,
                                     children: [
                                       Image.asset(
-                                        'assets/diya-lit.png',
+                                        'assets/diya/diya-lit.png',
                                         width: 50,
                                         height: 50,
                                         fit: BoxFit.contain,
@@ -592,7 +592,7 @@ class HomeScreenState extends State<HomeScreen> {
                                 onPressed: () => context.go('/login'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.accent,
-                                  foregroundColor: Colors.white,
+                                  foregroundColor: AppColors.onAccent,
                                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(50),
@@ -602,7 +602,7 @@ class HomeScreenState extends State<HomeScreen> {
                                 label: Text(
                                   'Sign up to track your seva',
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.white,
+                                    color: AppColors.onAccent,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -705,7 +705,7 @@ class HomeScreenState extends State<HomeScreen> {
                                     const SizedBox(width: 3),
                                     //  Replace with your own PNG
                                     Image.asset(
-                                      'assets/om_icon.png',
+                                      'assets/icons/om_icon.png',
                                       width: 24,
                                       height: 24,
                                     ),
@@ -746,7 +746,7 @@ class HomeScreenState extends State<HomeScreen> {
                         Row(
                           children: [
                             Expanded(
-                              child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+                              child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.9)),
                             ),
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -754,12 +754,12 @@ class HomeScreenState extends State<HomeScreen> {
                                 'ॐ',
                                 style: TextStyle(
                                   fontSize: 18,
-                                  color: Color(0xFF2A265F).withValues(alpha: 1.0),
+                                  color: AppColors.primary,
                                 ),
                               ),
                             ),
                             Expanded(
-                              child: Container(height: 1, color: const Color(0xFF2A265F).withValues(alpha: 0.9)),
+                              child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.9)),
                             ),
                           ],
                         ),
@@ -805,7 +805,7 @@ class HomeScreenState extends State<HomeScreen> {
     return Column(
       children: [
         Image.asset(
-          isLit ? 'assets/diya-lit.png' : 'assets/diya-nlit.png',
+          isLit ? 'assets/diya/diya-lit.png' : 'assets/diya/diya-nlit.png',
           width: 32,
           height: 32,
         ),
@@ -840,7 +840,7 @@ class HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
             image: const DecorationImage(
-              image: AssetImage('assets/stir_popup_background.png'),
+              image: AssetImage('assets/backgrounds/stir_popup_background.png'),
               fit: BoxFit.cover,
             ),
           ),
@@ -863,10 +863,10 @@ class HomeScreenState extends State<HomeScreen> {
                   Text(
                     mood.title,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A2E),
+                      color: AppColors.onBackground,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -877,7 +877,7 @@ class HomeScreenState extends State<HomeScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey.shade700,
+                      color: AppColors.onBackground.withValues(alpha: 0.65),
                       height: 1.5,
                     ),
                   ),
@@ -887,10 +887,10 @@ class HomeScreenState extends State<HomeScreen> {
                   Text(
                     mood.question,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A1A2E),
+                      color: AppColors.onBackground,
                       height: 1.5,
                     ),
                   ),
@@ -905,14 +905,14 @@ class HomeScreenState extends State<HomeScreen> {
                         widget.onGoToChat?.call();
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE8A020),
-                        foregroundColor: Colors.white,
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: AppColors.onAccent,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(50),
                         ),
                         elevation: 6,
-                        shadowColor: const Color(0xFFE8A020).withValues(alpha: 0.5),
+                        shadowColor: AppColors.accent.withValues(alpha: 0.5),
                       ),
                       child: const Text(
                         'Speak to the Guru',
@@ -937,7 +937,7 @@ class HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(50),
                         ),
                         elevation: 4,
-                        shadowColor: Colors.black.withValues(alpha: 0.15),
+                        shadowColor: AppColors.onBackground.withValues(alpha: 0.15),
                       ),
                       child: const Text(
                         'Maybe later',

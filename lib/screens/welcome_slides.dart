@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../theme/app_theme.dart';
+import '../theme/colors.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key, required this.onFinished});
@@ -9,12 +9,6 @@ class OnboardingScreen extends StatefulWidget {
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
-}
-
-class _Brand {
-  static const saffron = Color(0xFFF4972A);
-  static const lightSurface   = Color(0xFFEFEAFF);
-  static const lightDivider   = Color(0xFFE5E7EB);
 }
 
 
@@ -38,8 +32,8 @@ class _DotsIndicator extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
             color: selected
-                ? _Brand.saffron
-                : _Brand.lightDivider,
+                ? AppColors.accent
+                : AppColors.outline,
           ),
         );
       }),
@@ -59,24 +53,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       title: 'Welcome to MyShankara',
       subtitle:
       'A calm presence beside you—rooted in Sanatana Dharma, inspired by Adi Shankara, made for everyday life',
-      asset: 'assets/onboarding/1.png',
+      asset: 'assets/onboarding/onboarding-1.png',
     ),
     _Slide(
       title: 'Darshan & Diya Tracker',
       subtitle:
       'A simple daily rhythm—teaching, meaning, blessing—to build a quiet habit. Light the diya to mark continuity in a modern guru-shishya relationship',
-      asset: 'assets/onboarding/2.png',
+      asset: 'assets/onboarding/onboarding-2.png',
     ),
     _Slide(
       title: 'Guru Chat',
       subtitle:
       'Shankara stays by your side 24/7, listening without judgment and giving practical, dharmic guidance tailored to you',
-      asset: 'assets/onboarding/3.png',
+      asset: 'assets/onboarding/onboarding-3.png',
     ),
     _Slide(
       title: 'Your journey stays yours',
       subtitle: 'All conversations, logs, and journals are kept 100% confidential',
-      asset: 'assets/onboarding/4.png',
+      asset: 'assets/onboarding/onboarding-4.png',
     ),
   ];
 
@@ -113,12 +107,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final brand = theme.extension<BrandExtension>();
-
-    // final bg = _Brand.lightBg;
-    // final primaryText = _Brand.lightPrimary;
-    // final secondaryText = _Brand.lightSecondary;
-    final divider = _Brand.lightDivider;
     final isLast = _page == _slides.length - 1;
 
     return Scaffold(
@@ -139,7 +127,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       if (mounted) context.go('/login');
                     },
                     style: TextButton.styleFrom(
-                      foregroundColor: Color(0xFFF4972A),
+                      foregroundColor: AppColors.accent,
                       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
                     ),
                     child: const Text('Skip',
@@ -251,7 +239,6 @@ class _ImageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = _Brand.lightSurface;
     final size = MediaQuery.of(context).size;
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final cacheWidth = (size.width * dpr).round();
@@ -275,7 +262,7 @@ class _ImageCard extends StatelessWidget {
               child: Icon(
                 Icons.image_outlined,
                 size: 40,
-                color: Colors.black.withOpacity(0.35),
+                color: AppColors.onBackground.withValues(alpha: 0.35),
               ),
             );
           },
