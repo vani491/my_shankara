@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../main.dart';
+import '../services/account_deletion_service.dart';
+import '../services/auth_service.dart';
 import '../services/user_name_cache.dart';
 import '../theme/colors.dart';
 
@@ -131,10 +133,12 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
               onPressed: () async {
                 Navigator.pop(context);
                 try {
-                  await FirebaseAuth.instance.currentUser?.delete();
+                  await AuthService.deleteAccount();
                   if (context.mounted) {
                     context.go('/login');
                   }
+                } on SignInCancelled {
+                  // Apple re-auth dismissed — account left untouched.
                 } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -679,6 +683,11 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
       final String birthYear = _yearOfBirthCtrl.text;
       final int age = DateTime.now().year - (int.tryParse(birthYear) ?? 0);
 
+      // An email that already used its free trial and then deleted the
+      // account keeps its original trial start instead of getting a new one.
+      final Timestamp? previousTrial =
+          await AccountDeletionService.previousTrialStart(user);
+
       final Map<String, dynamic> userData = {
         'fullName': _nameCtrl.text.trim(),
         'preferredName': _preferredNameCtrl.text.trim(),
@@ -688,7 +697,7 @@ class _ProfileBasicsPageState extends State<ProfileBasicsPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'totalDiyasLit': 0,
         'lastLitDate': '',
-        'trialStartDate': FieldValue.serverTimestamp(),
+        'trialStartDate': previousTrial ?? FieldValue.serverTimestamp(),
       };
 
       await FirebaseFirestore.instance

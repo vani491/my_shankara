@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
 import 'package:myshankara/screens/root_nav.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
@@ -35,6 +36,9 @@ class HomeScreenState extends State<HomeScreen> {
   String _slokaMeaning = '';
   bool _slokaLoading = true;
   bool _slokaDarshan = true;
+  bool _slokaHasAudio = false;
+  bool _slokaAudioLoaded = false;
+  final AudioPlayer _slokaPlayer = AudioPlayer();
 
   String _titleDarshan = '';
   String _teaserDarshan = '';
@@ -50,11 +54,93 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _slokaPlayer.playerStateStream.listen((_) {
+      if (mounted) setState(() {});
+    });
     _initData();
     _loadUserDisplayName();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeRunFirstNotificationPrompt();
     });
+  }
+
+  @override
+  void dispose() {
+    _slokaPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleSlokaAudio() async {
+    try {
+      final st = _slokaPlayer.playerState;
+      if (!_slokaAudioLoaded) {
+        final url = Uri.parse(
+                'https://dashboard.myshankara.ai/get_sloka_audio')
+            .replace(queryParameters: {'timezone': _timezone});
+        _slokaAudioLoaded = true;
+        setState(() {});
+        await _slokaPlayer.setUrl(url.toString());
+        await _slokaPlayer.play();
+      } else if (st.processingState == ProcessingState.completed) {
+        await _slokaPlayer.seek(Duration.zero);
+        await _slokaPlayer.play();
+      } else if (st.playing) {
+        await _slokaPlayer.pause();
+      } else {
+        await _slokaPlayer.play();
+      }
+    } catch (_) {
+      _slokaAudioLoaded = false;
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to play audio')),
+        );
+      }
+    }
+  }
+
+  Widget _slokaAudioButton() {
+    final st = _slokaPlayer.playerState;
+    final loading = _slokaAudioLoaded &&
+        (st.processingState == ProcessingState.loading ||
+            (st.processingState == ProcessingState.buffering && st.playing));
+    final IconData icon;
+    if (_slokaAudioLoaded &&
+        st.processingState == ProcessingState.completed) {
+      icon = Icons.replay_rounded;
+    } else if (_slokaAudioLoaded && st.playing) {
+      icon = Icons.pause_rounded;
+    } else {
+      icon = Icons.play_arrow_rounded;
+    }
+    return GestureDetector(
+      onTap: loading ? null : _toggleSlokaAudio,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: const BoxDecoration(
+          color: AppColors.accent,
+          shape: BoxShape.circle,
+        ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          transitionBuilder: (child, anim) => ScaleTransition(
+              scale: anim, child: FadeTransition(opacity: anim, child: child)),
+          child: loading
+              ? const Padding(
+                  key: ValueKey('loading'),
+                  padding: EdgeInsets.all(8),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.onAccent,
+                  ),
+                )
+              : Icon(icon,
+                  key: ValueKey(icon), size: 22, color: AppColors.onAccent),
+        ),
+      ),
+    );
   }
 
   @override
@@ -161,6 +247,7 @@ class HomeScreenState extends State<HomeScreen> {
           _slokaDevanagari = (data['devanagari'] as String?) ?? '';
           _slokaRoman = (data['roman_simple'] as String?) ?? '';
           _slokaMeaning = (data['meaning'] as String?) ?? '';
+          _slokaHasAudio = data['has_audio'] == true;
           _slokaLoading = false;
         });
       } else {
@@ -675,7 +762,11 @@ class HomeScreenState extends State<HomeScreen> {
                                   color: AppColors.onSurface,
                                 ),
                               )
-                            else
+                            else ...[
+                              if (_slokaHasAudio) ...[
+                                _slokaAudioButton(),
+                                const SizedBox(width: 8),
+                              ],
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                 decoration: BoxDecoration(
@@ -712,6 +803,7 @@ class HomeScreenState extends State<HomeScreen> {
                                   ],
                                 ),
                               ),
+                            ],
                           ],
                         ),
 

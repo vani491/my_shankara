@@ -22,17 +22,10 @@ import 'dart:async';
 // ─── Guest daily-message limit ───────────────────────────────────────────────
 const int _kGuestDailyLimit = 5;
 
-// ─── Dify API config ──────────────────────────────────────────────────────────
-// Shared by every Dify call in this file.
-const String _difyBaseUrl = 'https://dify.myshankara.ai/v1';
-const String _difyApiKey = 'app-uYLIu5sp5pouPQihWiJ1ch5Q';
-
-/// The Dify "user" identifier — the same Firebase Auth uid used as the
-/// Firestore document id under `users/{uid}`. Every user (including guests,
-/// who are signed in anonymously) has one, so this must stay identical
-/// between the original chat-messages request and any later feedback /
-/// delete request for that same conversation, or Dify responds with a 404.
-String _difyEndUserId() => FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+// ─── Proxy API config ─────────────────────────────────────────────────────────
+// Every chat / delete / feedback call goes through the MyShankara proxy, which
+// holds the Dify credentials and verifies the Firebase ID token.
+const String _proxyBaseUrl = 'https://api.myshankara.ai/v1';
 
 class ChatbotPage extends StatefulWidget {
   final VoidCallback? onOpenDrawer;
@@ -246,9 +239,22 @@ class _ChatbotPageState extends State<ChatbotPage> {
   String _currentChatId = '';
 
   // ── Dify conversation continuity ────────────────────────────────────────────
-  // Sent back on every Dify call so replies stay in the same conversation
-  // instead of starting a new one on every turn.
+  // Sent back on every chat call so replies stay in the same conversation
+  // instead of starting a new one on every turn. Must be saved to Firestore
+  // before the next turn, because the proxy checks ownership against it.
   String _difyConversationId = '';
+
+  // ── Streaming state ─────────────────────────────────────────────────────────
+  http.Client? _client; // open while a reply is streaming; closing it aborts
+  String? _taskId; // from the `meta` event; needed for the stop endpoint
+  bool _streaming = false; // true only while the SSE stream is open
+  bool _stopRequested = false;
+  _Msg? _streamingMsg; // the bot bubble being filled in
+  // Text received from the proxy but not shown yet. The model can emit the
+  // whole answer in well under a second, so a timer reveals it at a readable
+  // pace instead of the bubble jumping straight to the final text.
+  String _pendingText = '';
+  Timer? _typer;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -450,6 +456,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
     setState(() {
       _currentChatId = session.id;
+      _difyConversationId = session.difyConversationId;
       _messages.clear();
       _messages.addAll(session.messages);
     });
@@ -459,29 +466,32 @@ class _ChatbotPageState extends State<ChatbotPage> {
   }
 
   /// Deletes a chat locally, in Firestore, and its Dify conversation.
-  /// The local list is updated immediately for a responsive UI; the Firestore
-  /// and Dify deletes happen in the background and only surface a snackbar
-  /// on failure (removal already happened locally, so it isn't reverted —
-  /// see the class doc comment on `_deleteChatFromFirestore` for why this can
-  /// still leave stale server-side state on failure).
+  /// The local list is updated immediately for a responsive UI; the server
+  /// deletes happen in the background and only surface a snackbar on failure.
   void _deleteChat(_ChatSession session) {
     setState(() => _chatHistory.remove(session));
     unawaited(_deleteChatEverywhere(session));
   }
 
+  /// The proxy delete MUST finish before the Firestore doc goes: the proxy
+  /// checks ownership against `users/{uid}/chats/{id}.difyConversationId` and
+  /// answers 403 once that doc is gone. If the proxy delete fails, the
+  /// Firestore doc is kept (and the chat re-listed) so the user can retry.
   Future<void> _deleteChatEverywhere(_ChatSession session) async {
-    try {
-      await _deleteChatFromFirestore(session.id);
-    } catch (_) {
-      _showTransientError("Couldn't fully delete this chat. It may reappear.");
-    }
-
     if (session.difyConversationId.isNotEmpty) {
       try {
         await _deleteDifyConversation(session.difyConversationId);
       } catch (_) {
         _showTransientError("Couldn't delete the conversation from the assistant.");
+        if (mounted) unawaited(_loadChatsFromFirestore());
+        return;
       }
+    }
+
+    try {
+      await _deleteChatFromFirestore(session.id);
+    } catch (_) {
+      _showTransientError("Couldn't fully delete this chat. It may reappear.");
     }
   }
 
@@ -503,10 +513,11 @@ class _ChatbotPageState extends State<ChatbotPage> {
     await batch.commit();
   }
 
-  void _showTransientError(String message) {
+  void _showTransientError(String message,
+      {Duration duration = const Duration(seconds: 2)}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      SnackBar(content: Text(message), duration: duration),
     );
   }
 
@@ -526,6 +537,11 @@ class _ChatbotPageState extends State<ChatbotPage> {
   Future<void> _sendCurrentText() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _botTyping) return;
+
+    if (_auth.currentUser == null) {
+      _showTransientError('Please sign in to chat.');
+      return;
+    }
 
     // Disable the send button immediately so rapid taps can't queue up
     // multiple requests while the async checks below are in flight.
@@ -568,32 +584,52 @@ class _ChatbotPageState extends State<ChatbotPage> {
         await _saveMessageToFirestore(userMsg);
       }
 
-      final reply = await _callDify(text, _difyConversationId);
-      final cleanedAnswer =
-          reply.answer.trim().replaceAll(RegExp(r'\n{3,}'), '\n\n');
-      final botMsg = _Msg(
-        role: Role.bot,
-        text: cleanedAnswer,
-        ts: DateTime.now(),
-        messageId: reply.messageId.isEmpty ? null : reply.messageId,
-      );
+      // The bot bubble appears immediately and fills in as chunks arrive.
+      final botMsg = _Msg(role: Role.bot, text: '', ts: DateTime.now());
+      setState(() {
+        _messages.add(botMsg);
+        _streamingMsg = botMsg;
+        _streaming = true;
+      });
+      _jumpToBottomSoon();
 
-      if (reply.conversationId.isNotEmpty) {
-        _difyConversationId = reply.conversationId;
-      }
+      final outcome = await _streamChat(text, botMsg);
+      if (!mounted) return;
 
-      setState(() => _messages.add(botMsg));
+      // Final cleanup applies to the finished text only, not each chunk.
+      final cleaned =
+          botMsg.text.trim().replaceAll(RegExp(r'\n{3,}'), '\n\n');
+      setState(() {
+        _streaming = false;
+        if (cleaned.isEmpty) {
+          _messages.remove(botMsg);
+        } else {
+          botMsg.text = cleaned;
+        }
+      });
+
+      final error = outcome.error;
+      if (error != null) _handleChatError(error);
 
       // 3. Increment guest counter OR persist to Firestore
       if (_isGuest) {
-        await _incrementGuestCount();
+        if (outcome.accepted) await _incrementGuestCount();
       } else {
-        botMsg.firestoreDocId = await _saveMessageToFirestore(botMsg);
-        await _saveDifyConversationId();
+        // Save the conversation id BEFORE the send button re-enables: the
+        // proxy answers 403 on the next turn if Firestore doesn't have it.
+        if (outcome.accepted && _difyConversationId.isNotEmpty) {
+          await _saveDifyConversationId();
+        }
+        if (cleaned.isNotEmpty) {
+          botMsg.firestoreDocId = await _saveMessageToFirestore(botMsg);
+        }
         await _loadChatsFromFirestore();
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
+        _messages.removeWhere(
+            (m) => identical(m, _streamingMsg) && m.text.isEmpty);
         _messages.add(_Msg(
           role: Role.bot,
           text: "Sorry, I couldn't get a reply right now.",
@@ -601,9 +637,211 @@ class _ChatbotPageState extends State<ChatbotPage> {
         ));
       });
     } finally {
-      setState(() => _botTyping = false);
-      _jumpToBottomSoon();
+      if (mounted) {
+        setState(() {
+          _streaming = false;
+          _streamingMsg = null;
+          _botTyping = false;
+        });
+        _jumpToBottomSoon();
+      }
     }
+  }
+
+  // ── Proxy streaming ────────────────────────────────────────────────────────
+
+  /// Streams one reply from `POST /chat` into [botMsg], updating it live.
+  /// Never throws: failures come back in [_ChatOutcome.error], and whatever
+  /// partial text arrived stays on [botMsg].
+  Future<_ChatOutcome> _streamChat(String query, _Msg botMsg) async {
+    final outcome = _ChatOutcome();
+    final client = http.Client();
+    _client = client;
+    _taskId = null;
+    _stopRequested = false;
+    _pendingText = '';
+
+    // Reveal ~1/30th of the backlog per tick (at least one character), so
+    // short replies type out steadily and long ones still catch up.
+    _typer?.cancel();
+    _typer = Timer.periodic(const Duration(milliseconds: 30), (_) {
+      if (_pendingText.isEmpty || !mounted) return;
+      var n = (_pendingText.length ~/ 30).clamp(1, _pendingText.length);
+      // Don't cut an emoji (surrogate pair) in half.
+      final last = _pendingText.codeUnitAt(n - 1);
+      if (n < _pendingText.length && last >= 0xD800 && last <= 0xDBFF) n++;
+      final piece = _pendingText.substring(0, n);
+      _pendingText = _pendingText.substring(n);
+      setState(() => botMsg.text += piece);
+      _followStream();
+    });
+
+    void dispatch(String? event, String raw) {
+      final Map<String, dynamic> data;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map<String, dynamic>) return;
+        data = decoded;
+      } catch (_) {
+        return;
+      }
+
+      switch (event) {
+        case 'meta':
+          outcome.accepted = true;
+          final taskId = data['task_id']?.toString();
+          _taskId = (taskId == null || taskId.isEmpty) ? null : taskId;
+          final cid = data['conversation_id']?.toString() ?? '';
+          if (cid.isNotEmpty) _difyConversationId = cid;
+        case 'chunk':
+          _pendingText += (data['text'] ?? '').toString();
+        case 'replace':
+          // Moderation swapped the answer: show it in full, nothing queued.
+          _pendingText = '';
+          if (!mounted) return;
+          setState(() => botMsg.text = (data['text'] ?? '').toString());
+          _followStream();
+        case 'done':
+          outcome.done = true;
+          final cid = data['conversation_id']?.toString() ?? '';
+          if (cid.isNotEmpty) _difyConversationId = cid;
+          final mid = data['message_id']?.toString() ?? '';
+          if (mid.isNotEmpty) {
+            if (mounted) {
+              setState(() => botMsg.messageId = mid);
+            } else {
+              botMsg.messageId = mid;
+            }
+          }
+        case 'error':
+          outcome.error = _ProxyError(
+            200,
+            data['code']?.toString() ?? 'upstream_error',
+            data['message']?.toString() ?? '',
+          );
+      }
+    }
+
+    try {
+      var resp = await _openChatStream(client, query, await _idToken());
+      if (resp.statusCode == 401) {
+        final err =
+            _parseProxyError(resp.statusCode, await resp.stream.bytesToString());
+        if (err.code != 'token_expired') throw err;
+        resp = await _openChatStream(
+            client, query, await _idToken(forceRefresh: true));
+      }
+      if (resp.statusCode != 200) {
+        throw _parseProxyError(
+            resp.statusCode, await resp.stream.bytesToString());
+      }
+
+      // SSE: "event: X" / "data: {json}" lines; a blank line ends a frame;
+      // lines starting with ":" are comments (pings).
+      String? event;
+      final dataLines = <String>[];
+      await for (final line in resp.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (line.isEmpty) {
+          if (dataLines.isNotEmpty) dispatch(event, dataLines.join('\n'));
+          event = null;
+          dataLines.clear();
+        } else if (line.startsWith(':')) {
+          continue;
+        } else if (line.startsWith('event:')) {
+          event = line.substring(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.add(line.substring(5).trimLeft());
+        }
+        if (outcome.done || outcome.error != null) break;
+      }
+      if (dataLines.isNotEmpty && !outcome.done && outcome.error == null) {
+        dispatch(event, dataLines.join('\n'));
+      }
+
+      if (!outcome.done && outcome.error == null && !_stopRequested) {
+        outcome.error = const _ProxyError(0, 'stream_interrupted', '');
+      }
+    } on _ProxyError catch (e) {
+      outcome.error = e;
+    } catch (_) {
+      // Closing the client to stop a reply surfaces here; that's not an error.
+      if (!_stopRequested) {
+        outcome.error = const _ProxyError(0, 'network_error', '');
+      }
+    } finally {
+      client.close();
+      _client = null;
+      // Let the typewriter finish revealing what already arrived (the stop
+      // button stays up meanwhile; stopping clears the backlog).
+      while (_pendingText.isNotEmpty && !_stopRequested && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      }
+      _typer?.cancel();
+      _typer = null;
+      _pendingText = '';
+    }
+    return outcome;
+  }
+
+  Future<http.StreamedResponse> _openChatStream(
+      http.Client client, String query, String token) {
+    final req = http.Request('POST', Uri.parse('$_proxyBaseUrl/chat'))
+      ..headers.addAll({
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        // A gzip layer anywhere in front of the proxy would hold chunks back.
+        'Accept-Encoding': 'identity',
+      })
+      ..body = jsonEncode({
+        'query': query,
+        'conversation_id': _difyConversationId,
+      });
+    // Connect timeout only; the stream itself has no read timeout.
+    return client.send(req).timeout(const Duration(seconds: 15));
+  }
+
+  /// Stop button: ask the proxy to halt generation (fire and forget), then
+  /// drop the connection. Partial text stays and input is re-enabled by
+  /// [_sendCurrentText] once the stream unwinds.
+  void _stopStreaming() {
+    if (!_streaming) return;
+    _stopRequested = true;
+    _pendingText = ''; // keep only what's already visible
+    final taskId = _taskId;
+    if (taskId != null) {
+      unawaited(() async {
+        try {
+          await _proxyRequest('POST', '/chat/$taskId/stop');
+        } catch (_) {}
+      }());
+    }
+    _client?.close();
+  }
+
+  void _handleChatError(_ProxyError error) {
+    if (error.code == 'daily_limit_reached' && _isGuest) {
+      _showLimitReachedDialog();
+      return;
+    }
+    _showTransientError(error.userMessage,
+        duration: const Duration(seconds: 4));
+    if (error.code == 'no_active_entitlement' && mounted) {
+      context.push('/guru-dakshina');
+    }
+  }
+
+  /// Keeps the newest text in view while streaming, unless the user has
+  /// scrolled up to read earlier messages.
+  void _followStream() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final pos = _scroll.position;
+      if (pos.maxScrollExtent - pos.pixels > 200) return;
+      _scroll.jumpTo(pos.maxScrollExtent);
+    });
   }
 
   void _onTerms() => context.push('/terms-of-service');
@@ -625,6 +863,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
     if (_messages.length > 1 && !_isGuest) {
       _saveCurrentChat();
     }
+    _client?.close();
+    _typer?.cancel();
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
@@ -882,7 +1122,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
                 controller: _scroll,
                 padding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 16),
-                itemCount: _messages.length + (_botTyping ? 1 : 0),
+                itemCount: _messages.length +
+                    (_botTyping && _streamingMsg == null ? 1 : 0),
                 itemBuilder: (context, index) {
                   return ListenableBuilder(
                     listenable: context
@@ -901,6 +1142,12 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
                       final msg = _messages[index];
                       final isUser = msg.role == Role.user;
+
+                      // Streaming bubble with no text yet: show the dots.
+                      if (identical(msg, _streamingMsg) &&
+                          msg.text.trim().isEmpty) {
+                        return const _TypingBubble();
+                      }
 
                       if (msg.isWelcome) {
                         return _WelcomeMessage(
@@ -965,21 +1212,27 @@ class _ChatbotPageState extends State<ChatbotPage> {
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        onPressed: _botTyping ? null : _sendCurrentText,
+                        onPressed: _streaming
+                            ? _stopStreaming
+                            : (_botTyping ? null : _sendCurrentText),
+                        tooltip: _streaming ? 'Stop' : null,
                         icon: CircleAvatar(
-                          backgroundColor: _botTyping
+                          backgroundColor: _botTyping && !_streaming
                               ? AppColors.accent.withOpacity(0.4)
                               : AppColors.accent,
                           radius: 20,
-                          child: Padding(
-                            padding: const EdgeInsets.all(4.0),
-                            child: Image.asset(
-                              'assets/icons/om.png',
-                              width: 25,
-                              height: 25,
-                              color: AppColors.primary,
-                            ),
-                          ),
+                          child: _streaming
+                              ? Icon(Icons.stop_rounded,
+                                  size: 24, color: AppColors.primary)
+                              : Padding(
+                                  padding: const EdgeInsets.all(4.0),
+                                  child: Image.asset(
+                                    'assets/icons/om.png',
+                                    width: 25,
+                                    height: 25,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
                         ),
                       ),
                     ],
@@ -1111,10 +1364,12 @@ enum Role { user, bot }
 
 class _Msg {
   final Role role;
-  final String text;
+  // Mutable so a bot reply can be appended to while it streams in.
+  String text;
   final DateTime ts;
   final bool isWelcome;
-  final String? messageId;
+  // Set once the stream finishes (the `done` event), which enables rating.
+  String? messageId;
   // Mutated in place (not via setState) so the current thumbs up/down
   // selection survives widget rebuilds without needing a parent rebuild.
   _Thumb feedback;
@@ -1557,83 +1812,144 @@ String _formatChatTime(DateTime t, bool isActive) {
   return '${t.day} ${months[t.month - 1]} ${t.year}';
 }
 
-Future<({String answer, String conversationId, String messageId})> _callDify(
-    String userText, String conversationId) async {
-  final url = Uri.parse('$_difyBaseUrl/chat-messages');
-  final resp = await http.post(
-    url,
-    headers: const {
-      'Authorization': 'Bearer $_difyApiKey',
-      'Content-Type': 'application/json',
-    },
-    body: jsonEncode({
-      "inputs": {},
-      "query": userText,
-      "response_mode": "blocking",
-      "conversation_id": conversationId,
-      "user": _difyEndUserId(),
-      "files": [],
-    }),
-  );
+// ─── Proxy helpers ─────────────────────────────────────────────────────────────
 
-  if (resp.statusCode >= 200 && resp.statusCode < 300) {
-    final data = jsonDecode(resp.body);
-    final answer = data['answer'] ?? data['data'] ?? data['message'] ?? resp.body;
-    return (
-      answer: answer.toString(),
-      conversationId: (data['conversation_id'] ?? '').toString(),
-      messageId: (data['message_id'] ?? '').toString(),
-    );
-  } else {
-    throw Exception('Dify error ${resp.statusCode}: ${resp.body}');
+/// Result of one streamed chat turn.
+class _ChatOutcome {
+  bool accepted = false; // the proxy sent `meta`, i.e. it took the message
+  bool done = false;
+  _ProxyError? error;
+}
+
+/// An error from the proxy (HTTP error body or an SSE `error` event), or a
+/// local failure reported with status 0.
+class _ProxyError implements Exception {
+  final int status;
+  final String code;
+  final String message;
+  const _ProxyError(this.status, this.code, this.message);
+
+  String get userMessage => _proxyErrorText(code, message);
+}
+
+String _proxyErrorText(String code, String serverMessage) {
+  switch (code) {
+    case 'missing_token':
+    case 'token_expired':
+    case 'invalid_token':
+    case 'token_revoked':
+    case 'not_signed_in':
+      return 'Your session has expired. Please sign in again.';
+    case 'no_active_entitlement':
+      return 'An active subscription is needed to chat with the Guru.';
+    case 'conversation_not_owned':
+      return "This conversation can't be continued. Please start a new chat.";
+    case 'daily_limit_reached':
+      return "You've reached today's message limit.";
+    case 'upstream_error':
+      return 'The Guru is unavailable right now. Please try again shortly.';
+    case 'validation_error':
+      return "That message couldn't be sent. Please shorten it and try again.";
+    case 'network_error':
+      return 'Network problem. Please check your connection and try again.';
+    case 'stream_interrupted':
+      return 'The connection was interrupted.';
+    default:
+      return serverMessage.isNotEmpty
+          ? serverMessage
+          : "Sorry, I couldn't get a reply right now.";
   }
 }
 
-/// Deletes a Dify conversation (and its messages) server-side. Called when
-/// the user deletes a chat locally, so it doesn't linger in Dify.
+/// Parses the proxy's `{"detail": {"code", "message"}}` error body. A 422 has
+/// `detail` as a List (FastAPI validation errors), so every shape is handled.
+_ProxyError _parseProxyError(int status, String body) {
+  var code = 'http_$status';
+  var message = '';
+  try {
+    final decoded = jsonDecode(body);
+    final detail = decoded is Map ? decoded['detail'] : null;
+    if (detail is Map) {
+      code = detail['code']?.toString() ?? code;
+      message = detail['message']?.toString() ?? '';
+    } else if (detail is List) {
+      code = 'validation_error';
+    } else if (detail is String) {
+      message = detail;
+    }
+  } catch (_) {
+    // Non-JSON body (e.g. a gateway error page): fall back to the status.
+  }
+  return _ProxyError(status, code, message);
+}
+
+/// Firebase ID token for the current user (guests are anonymous users, so
+/// they have one too). Pass [forceRefresh] to mint a fresh token.
+Future<String> _idToken({bool forceRefresh = false}) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) throw const _ProxyError(401, 'not_signed_in', '');
+  final token = await user.getIdToken(forceRefresh);
+  if (token == null || token.isEmpty) {
+    throw const _ProxyError(401, 'not_signed_in', '');
+  }
+  return token;
+}
+
+/// Non-streaming proxy call. Retries once with a refreshed token when the
+/// proxy answers 401 `token_expired`. Returns the response whatever its status.
+Future<http.Response> _proxyRequest(String method, String path,
+    {Map<String, dynamic>? body}) async {
+  Future<http.Response> send(String token) {
+    final uri = Uri.parse('$_proxyBaseUrl$path');
+    final headers = {
+      'Authorization': 'Bearer $token',
+      if (body != null) 'Content-Type': 'application/json',
+    };
+    return method == 'DELETE'
+        ? http.delete(uri, headers: headers)
+        : http.post(uri,
+            headers: headers, body: body == null ? null : jsonEncode(body));
+  }
+
+  var resp = await send(await _idToken());
+  if (resp.statusCode == 401 &&
+      _parseProxyError(resp.statusCode, resp.body).code == 'token_expired') {
+    resp = await send(await _idToken(forceRefresh: true));
+  }
+  return resp;
+}
+
+/// Deletes a Dify conversation (and its messages) via the proxy. The proxy
+/// treats a 404 from Dify as success. Must complete BEFORE the Firestore chat
+/// doc is deleted, because the proxy checks ownership against that doc.
 Future<void> _deleteDifyConversation(String conversationId) async {
-  final url = Uri.parse('$_difyBaseUrl/conversations/$conversationId');
-  final resp = await http.delete(
-    url,
-    headers: const {
-      'Authorization': 'Bearer $_difyApiKey',
-      'Content-Type': 'application/json',
-    },
-    body: jsonEncode({"user": _difyEndUserId()}),
-  );
-
-  // 404 means it's already gone on Dify's side — treat as success.
-  if (resp.statusCode != 404 &&
-      !(resp.statusCode >= 200 && resp.statusCode < 300)) {
-    throw Exception(
-        'Dify delete-conversation error ${resp.statusCode}: ${resp.body}');
+  final resp = await _proxyRequest('DELETE', '/conversations/$conversationId');
+  if (resp.statusCode != 200) {
+    throw _parseProxyError(resp.statusCode, resp.body);
   }
 }
 
-/// Submits (or clears, when [rating] is null) feedback for one Dify message.
-/// `user` must match the value sent on the original chat-messages request
-/// for this [messageId], otherwise Dify returns 404.
+/// Public entry point for other features (account deletion) that need to
+/// remove a Dify conversation through the same authenticated proxy call.
+Future<void> deleteDifyConversationViaProxy(String conversationId) =>
+    _deleteDifyConversation(conversationId);
+
+/// Submits (or clears, when [rating] is null) feedback for one message.
 Future<void> _sendDifyFeedback({
   required String messageId,
   required String? rating,
   String? content,
 }) async {
-  final url = Uri.parse('$_difyBaseUrl/messages/$messageId/feedbacks');
-  final resp = await http.post(
-    url,
-    headers: const {
-      'Authorization': 'Bearer $_difyApiKey',
-      'Content-Type': 'application/json',
+  final resp = await _proxyRequest(
+    'POST',
+    '/messages/$messageId/feedback',
+    body: {
+      'rating': rating,
+      if (content != null && content.isNotEmpty) 'content': content,
     },
-    body: jsonEncode({
-      "rating": rating,
-      "user": _difyEndUserId(),
-      if (content != null && content.isNotEmpty) "content": content,
-    }),
   );
-
-  if (resp.statusCode < 200 || resp.statusCode >= 300) {
-    throw Exception('Dify feedback error ${resp.statusCode}: ${resp.body}');
+  if (resp.statusCode != 200) {
+    throw _parseProxyError(resp.statusCode, resp.body);
   }
 }
 

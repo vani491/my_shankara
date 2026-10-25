@@ -1,6 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-
+import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -232,9 +232,17 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     );
 
     try {
-      final result = await AuthService.signInWithGoogle();
+      await AuthService.signInWithGoogle();
       if (!mounted) return;
       Navigator.of(context).pop();
+    } on GoogleSignInException catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      // User closed the Google popup: stay put, say nothing.
+      if (e.code == GoogleSignInExceptionCode.canceled) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Google sign-in failed: ${e.description ?? e.code.name}')),
+      );
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -244,7 +252,29 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     }
   }
 
-  void _onAppleSignUp() {}
+  _onAppleSignUp() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await AuthService.signInWithApple();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on SignInCancelled {
+      // User dismissed the Apple sheet — stay put, say nothing.
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Apple sign-in failed: $e')),
+      );
+    }
+  }
 
   Future<void> _onCreateAccount() async {
     if (!_formKey.currentState!.validate()) return;
@@ -338,15 +368,13 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     onPressed: () => _onGoogleSignUp(),
                   ),
 
-                  const SizedBox(height: 14),
+                  if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                    const SizedBox(height: 14),
 
-                  SocialSignInButton.apple(
-                    // onPressed: () => _onAppleSignUp(),
-                    onPressed: () {
-                      print('Continue with Apple');
-
-                    },
-                  ),
+                    SocialSignInButton.apple(
+                      onPressed: () => _onAppleSignUp(),
+                    ),
+                  ],
 
                   const SizedBox(height: 18),
 

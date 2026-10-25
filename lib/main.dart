@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'services/notification_service.dart';
+import 'services/subscription_service.dart';
 
 import 'dart:async';
 // chandni changes
@@ -192,6 +193,11 @@ Future<void> main() async {
     FlutterNativeSplash.remove();
   }
 
+  // Start listening to the purchase stream right away so no store transaction
+  // delivered at launch is missed. The listener is attached synchronously;
+  // only the product lookup is async, so it is not awaited.
+  unawaited(SubscriptionService.instance.init());
+
   runApp(MyApp(appState: appState));
 
   // Non-blocking: notifications init + re-apply saved schedule, after UI is up.
@@ -352,6 +358,12 @@ class _MyAppState extends State<MyApp> {
   );
 
   String get userEmail => 'test@gmail.com';
+
+  @override
+  void dispose() {
+    SubscriptionService.instance.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

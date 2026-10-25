@@ -1,15 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../constants/subscription_constants.dart';
+import '../services/subscription_service.dart';
 import '../theme/colors.dart';
 
 /// Membership / Guru Dakshina page.
 ///
-/// Supports 3 user states. For now the state + data are DUMMY so all three
-/// views can be tested. Later, wire `_status`, `_trialDaysRemaining`,
-/// `_renewalDate`, and `_localizedPrice` to your billing / Firestore layer.
+/// Supports 3 user states (guest / trial / active). Status comes from
+/// Firestore; the price and the purchase flow come from [SubscriptionService].
 enum MembershipStatus { guest, trial, active }
 
 class GuruDakshinaPage extends StatefulWidget {
@@ -27,13 +31,50 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
   String _renewalDate = '';
   bool _isLoading = true;
 
-  // Price string — later fetched from Apple StoreKit / Google Play Billing.
-  final String _localizedPrice = '₹199';
+  final SubscriptionService _subscription = SubscriptionService.instance;
+  bool _refreshingAfterPurchase = false;
+
+  /// Store price (e.g. "₹199.00"), a placeholder while it loads, or a dash if
+  /// the product can't be found in the store.
+  String get _localizedPrice =>
+      _subscription.price ?? (_subscription.isLoadingProducts ? '…' : '—');
 
   @override
   void initState() {
     super.initState();
+    _subscription.addListener(_onSubscriptionChanged);
+    if (_subscription.productDetails == null &&
+        !_subscription.isLoadingProducts) {
+      _subscription.loadProducts();
+    }
     _resolveStatus();
+  }
+
+  @override
+  void dispose() {
+    _subscription.removeListener(_onSubscriptionChanged);
+    super.dispose();
+  }
+
+  void _onSubscriptionChanged() {
+    if (!mounted) return;
+    setState(() {});
+
+    final error = _subscription.errorMessage;
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(error)));
+      _subscription.clearError();
+    }
+
+    // Purchase confirmed → re-read Firestore so the page flips to Active.
+    if (_subscription.isMember &&
+        _status != MembershipStatus.active &&
+        !_refreshingAfterPurchase) {
+      _refreshingAfterPurchase = true;
+      _resolveStatus().whenComplete(() => _refreshingAfterPurchase = false);
+    }
   }
 
   Future<void> _resolveStatus() async {
@@ -69,10 +110,12 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
       final subscriptionStatus = data['subscription_status'] as String?;
 
       if (subscriptionStatus == 'active') {
+        // No renewal date is known client-side until server verification
+        // writes one; the Active view shows "Active" when this is empty.
         final renewalTs = data['renewal_date'] as Timestamp?;
         final renewal = renewalTs != null
             ? DateFormat('d MMMM yyyy').format(renewalTs.toDate())
-            : '—';
+            : '';
         if (mounted) {
           setState(() {
             _status = MembershipStatus.active;
@@ -293,19 +336,28 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
         const SizedBox(height: 20),
         _planCard(context),
         const SizedBox(height: 10),
-        Text(
-          'Automatically renews monthly. Cancel anytime through Apple or '
-              'Google Play.',
-          style: tt.bodySmall?.copyWith(
-            color: cs.onSurfaceVariant,
-            height: 1.4,
-          ),
-        ),
+        _purchaseDisclosure(context),
         const SizedBox(height: 34),
         _primaryButton(
           context,
           label: 'Begin Membership',
           onTap: _onBeginMembership,
+          loading: _subscription.isPurchasing,
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: TextButton(
+            onPressed: _subscription.isPurchasing
+                ? null
+                : _subscription.restorePurchases,
+            child: Text(
+              'Restore Purchases',
+              style: tt.bodyMedium?.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -326,7 +378,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
                 color: AppColors.primary, size: 20),
             const SizedBox(width: 8),
             Text(
-              'Renews on $_renewalDate',
+              _renewalDate.isEmpty ? 'Active' : 'Renews on $_renewalDate',
               style: tt.bodyMedium?.copyWith(
                 color: cs.onSurface,
                 fontWeight: FontWeight.w600,
@@ -467,13 +519,15 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(width: 4),
-              Text(
-                '/month',
-                style: tt.bodyMedium?.copyWith(
-                  color: AppColors.onPrimary.withValues(alpha: 0.85),
+              if (_subscription.price != null) ...[
+                const SizedBox(width: 4),
+                Text(
+                  '/month',
+                  style: tt.bodyMedium?.copyWith(
+                    color: AppColors.onPrimary.withValues(alpha: 0.85),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -488,11 +542,59 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
     );
   }
 
+  // ── Reusable: purchase disclosure + legal links ─────────────────────────
+  Widget _purchaseDisclosure(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final store =
+        defaultTargetPlatform == TargetPlatform.iOS ? 'Apple' : 'Google Play';
+    final price = _subscription.price;
+    final linkStyle = tt.bodySmall?.copyWith(
+      color: AppColors.primary,
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${price != null ? '$price billed monthly. ' : 'Billed monthly. '}'
+          'The subscription renews automatically each month until you cancel. '
+          'Cancel anytime through $store — at least 24 hours before the end '
+          'of the current period to avoid the next charge. Payment is '
+          'charged to your $store account when you confirm the purchase. '
+          'Your free trial never charges you automatically. No prorated '
+          'refunds; refunds follow $store policy.',
+          style: tt.bodySmall?.copyWith(
+            color: cs.onSurfaceVariant,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 16,
+          children: [
+            GestureDetector(
+              onTap: () => _openUrl(SubscriptionConstants.termsUrl),
+              child: Text('Terms of Service', style: linkStyle),
+            ),
+            GestureDetector(
+              onTap: () => _openUrl(SubscriptionConstants.privacyUrl),
+              child: Text('Privacy Policy', style: linkStyle),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   // ── Reusable: primary button ────────────────────────────────────────────
   Widget _primaryButton(
       BuildContext context, {
         required String label,
         required VoidCallback onTap,
+        bool loading = false,
       }) {
     return SizedBox(
       width: double.infinity,
@@ -505,27 +607,47 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
             borderRadius: BorderRadius.circular(14),
           ),
         ),
-        onPressed: onTap,
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary),
-        ),
+        onPressed: loading ? null : onTap,
+        child: loading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: AppColors.primary,
+                ),
+              )
+            : Text(
+                label,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary),
+              ),
       ),
     );
   }
 
-  // ── Actions (stub for now) ──────────────────────────────────────────────
-  void _onBeginMembership() {
-    // TODO: open in_app_purchase subscription flow
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Subscription flow coming soon.')),
-    );
-  }
+  // ── Actions ─────────────────────────────────────────────────────────────
+  void _onBeginMembership() => _subscription.buy();
 
-  void _onManageMembership() {
-    // TODO: open store subscription management
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Opening store subscription management…')),
-    );
+  Future<void> _onManageMembership() => _openUrl(
+        defaultTargetPlatform == TargetPlatform.iOS
+            ? SubscriptionConstants.iosManageUrl
+            : SubscriptionConstants.androidManageUrl,
+      );
+
+  Future<void> _openUrl(String url) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (e) {
+      debugPrint('GuruDakshina: could not open $url: $e');
+    }
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open the link.")),
+      );
+    }
   }
 }

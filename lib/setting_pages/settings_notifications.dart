@@ -1,6 +1,10 @@
 // lib/setting_pages/settings_notifications.dart
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/account_deletion_service.dart';
+import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../theme/colors.dart';
 import 'package:app_settings/app_settings.dart';
@@ -256,6 +260,189 @@ class _SettingsNotificationsScreenState
     }
   }
 
+  bool _isDeleting = false;
+
+  /// Guests (anonymous users) have no profile or saved chats to delete.
+  bool get _canDeleteAccount {
+    final user = AuthService.currentUser;
+    return user != null && !user.isAnonymous;
+  }
+
+  Future<void> _confirmAndDeleteAccount() async {
+    final needsPassword = AuthService.isPasswordUser;
+    final passwordCtrl = TextEditingController();
+    final cs = Theme.of(context).colorScheme;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('Delete account?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This permanently deletes your profile, your Guru chat history '
+              'and your Diya count. This cannot be undone.\n\n'
+              'Deleting your account does not give you a new free trial if '
+              'you sign up again with the same email.',
+              style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+            ),
+            if (needsPassword) ...[
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Enter your password to confirm',
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: cs.error),
+            onPressed: () {
+              if (needsPassword && passwordCtrl.text.isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    final password = passwordCtrl.text;
+    passwordCtrl.dispose();
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    try {
+      // Email/Google re-auth happens up front so a stale login can't fail the
+      // final account delete after the data is already gone. Apple users are
+      // re-prompted inside the delete itself.
+      if (needsPassword) {
+        await AuthService.reauthenticateWithPassword(password);
+      } else if (AuthService.isGoogleUser) {
+        await AuthService.reauthenticateWithGoogle();
+      }
+
+      await AccountDeletionService.deleteAccountAndData();
+
+      if (mounted) context.go('/login');
+    } on SignInCancelled {
+      // Re-auth sheet dismissed — nothing was deleted.
+    } on FirebaseAuthException catch (e) {
+      final wrongPassword = e.code == 'wrong-password' ||
+          e.code == 'invalid-credential' ||
+          e.code == 'invalid-password';
+      _toast(wrongPassword
+          ? 'Incorrect password.'
+          : 'Could not delete account (${e.code}). Please try again.');
+    } catch (e, stack) {
+      debugPrint('Account deletion failed: $e\n$stack');
+      _toast('Could not delete your account. Please check your connection '
+          'and try again.');
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
+  }
+
+  Widget _buildAccountSection(ColorScheme cs, TextTheme tt) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 32),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: cs.error.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.person_outline, color: cs.error, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Account',
+              style: tt.titleSmall?.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Container(
+          clipBehavior: Clip.hardEdge,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.07),
+                blurRadius: 18,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.white,
+            child: ListTile(
+              contentPadding: const EdgeInsets.fromLTRB(16, 8, 14, 8),
+              enabled: !_isDeleting,
+              onTap: _confirmAndDeleteAccount,
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: cs.error.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: _isDeleting
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: cs.error,
+                        ),
+                      )
+                    : Icon(Icons.delete_forever_outlined,
+                        color: cs.error, size: 20),
+              ),
+              title: Text(
+                _isDeleting ? 'Deleting account…' : 'Delete account',
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.error,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+              subtitle: Text(
+                'Permanently remove your profile, chats and Diya count',
+                style: tt.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   String _formatTime24(TimeOfDay t) {
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
@@ -504,6 +691,8 @@ class _SettingsNotificationsScreenState
                   ],
                 ),
               ),
+
+              if (_canDeleteAccount) _buildAccountSection(cs, tt),
             ],
           ),
         ),

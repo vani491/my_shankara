@@ -1,8 +1,9 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 // import 'package:flutter_signin_button/flutter_signin_button.dart';
-
+import 'package:google_sign_in/google_sign_in.dart';
 import '../services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -174,10 +175,44 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
     try {
       await AuthService.signInWithGoogle();
       if (!mounted) return;
+    } on GoogleSignInException catch (e) {
+      // User closed the Google popup: stay put, say nothing.
+      if (e.code != GoogleSignInExceptionCode.canceled && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Google sign-in failed: ${e.description ?? e.code.name}')),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Google sign-in failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final nav = Navigator.of(context, rootNavigator: true);
+          if (nav.canPop()) nav.pop();
+        });
+      }
+    }
+  }
+
+  void _onAppleSignIn() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      await AuthService.signInWithApple();
+      if (!mounted) return;
+    } on SignInCancelled {
+      // User dismissed the Apple sheet — stay put, say nothing.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Apple sign-in failed: $e')),
         );
       }
     } finally {
@@ -295,19 +330,13 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
 
                   ),
 
-                  const SizedBox(height: 14),
+                  if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                    const SizedBox(height: 14),
 
-                  SocialSignInButton.apple(
-                    // onPressed: () => _onAppleSignUp(),
-                    onPressed: () {
-                      print('guest button pressed');
-                      // Navigator.push(
-                      //   context,
-                      //   MaterialPageRoute(
-                      //       builder: (context) => RegisterScreen()),
-                      // );
-                    },
-                  ),
+                    SocialSignInButton.apple(
+                      onPressed: () => _onAppleSignIn(),
+                    ),
+                  ],
 
                   const SizedBox(height: 18),
 

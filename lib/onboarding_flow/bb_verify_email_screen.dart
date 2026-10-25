@@ -3,6 +3,7 @@ import '../theme/colors.dart';
 import '../main.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
 import 'package:go_router/go_router.dart';
 
 import 'dart:async';
@@ -138,10 +139,12 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     onPressed: () async {
                       Navigator.pop(context);
                       try {
-                        await FirebaseAuth.instance.currentUser?.delete();
+                        await AuthService.deleteAccount();
                         if (context.mounted) {
                           context.go('/login');
                         }
+                      } on SignInCancelled {
+                        // Apple re-auth dismissed — account left untouched.
                       } catch (e) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(

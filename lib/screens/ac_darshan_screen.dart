@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
 import 'package:myshankara/theme/app_theme.dart';
 import '../theme/colors.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -29,10 +30,7 @@ import '../services/access_service.dart';
 class DarshanScreen extends StatefulWidget {
   final VoidCallback? onDarshanComplete;
 
-  const DarshanScreen({
-    super.key,
-    this.onDarshanComplete,
-  });
+  const DarshanScreen({super.key, this.onDarshanComplete});
 
   @override
   State<DarshanScreen> createState() => _DarshanScreenState();
@@ -59,12 +57,24 @@ class _DarshanScreenState extends State<DarshanScreen>
   String _tomorrowHook = '';
   String _timezone = '';
 
+  // ── Audio ──────────────────────────────────────────────────────────────────
+  // Order matches the 4 steps: story, insight, reflection, hook.
+  static const _audioKinds = ['story', 'insight', 'reflection', 'hook'];
+  List<bool> _hasAudio = [false, false, false, false];
+  final AudioPlayer _player = AudioPlayer();
+  int? _audioLoadedStep; // step whose audio is currently loaded in the player
+
   late final PageController _pageController;
   late AnimationController _diyaGlowController;
   late Animation<double> _diyaGlowAnim;
 
   // ── CTA labels & per-step colors ──────────────────────────────────────────
-  static const _ctaLabels = ['Understand', 'Reflect', 'Offer', 'Complete Darshan'];
+  static const _ctaLabels = [
+    'Understand',
+    'Reflect',
+    'Offer',
+    'Complete Darshan',
+  ];
   static const _ctaColors = [
     AppColors.darshanStepStory,
     AppColors.darshanStepInterpretation,
@@ -98,6 +108,10 @@ class _DarshanScreenState extends State<DarshanScreen>
       CurvedAnimation(parent: _diyaGlowController, curve: Curves.easeInOut),
     );
 
+    _player.playerStateStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+
     _fetchDarshan();
     // Check the today status for diya
     DiyaService.isDiyaLitToday().then((alreadyLit) {
@@ -124,33 +138,36 @@ class _DarshanScreenState extends State<DarshanScreen>
     );
   }
 
-
-
   // ── API ────────────────────────────────────────────────────────────────────
   Future<void> _fetchDarshan() async {
     try {
       final timezoneInfo = await FlutterTimezone.getLocalTimezone();
       _timezone = timezoneInfo.identifier;
-      final uri = Uri.parse('https://dashboard.myshankara.ai/get_darshan')
-          .replace(queryParameters: {
-        'timezone': _timezone,
-      });
+      final uri = Uri.parse(
+        'https://dashboard.myshankara.ai/get_darshan',
+      ).replace(queryParameters: {'timezone': _timezone});
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         if (mounted) {
           setState(() {
-            _week         = (data['week']          as num?)?.toInt() ?? 0;
-            _weekday      = data['weekday']         as String? ?? '';
-            _title        = data['title']           as String? ?? '';
-            _teaser       = data['teaser']          as String? ?? '';
-            _story        = data['story']           as String? ?? '';
-            _insight      = data['insight']         as String? ?? '';
-            _reflectionQ1 = data['reflection_q1']  as String? ?? '';
-            _reflectionQ2 = data['reflection_q2']  as String? ?? '';
-            _blessing     = data['blessing']        as String? ?? '';
-            _tomorrowHook = data['tomorrow_hook']   as String? ?? '';
-            _isLoading    = false;
+            _week = (data['week'] as num?)?.toInt() ?? 0;
+            _weekday = data['weekday'] as String? ?? '';
+            _title = data['title'] as String? ?? '';
+            _teaser = data['teaser'] as String? ?? '';
+            _story = data['story'] as String? ?? '';
+            _insight = data['insight'] as String? ?? '';
+            _reflectionQ1 = data['reflection_q1'] as String? ?? '';
+            _reflectionQ2 = data['reflection_q2'] as String? ?? '';
+            _blessing = data['blessing'] as String? ?? '';
+            _tomorrowHook = data['tomorrow_hook'] as String? ?? '';
+            _hasAudio = [
+              data['has_audio_story'] == true,
+              data['has_audio_insight'] == true,
+              data['has_audio_reflection'] == true,
+              data['has_audio_hook'] == true,
+            ];
+            _isLoading = false;
           });
         }
       } else {
@@ -164,8 +181,56 @@ class _DarshanScreenState extends State<DarshanScreen>
   @override
   void dispose() {
     _pageController.dispose();
+    _player.dispose();
     _diyaGlowController.dispose();
     super.dispose();
+  }
+
+  // ── Audio control ──────────────────────────────────────────────────────────
+  _AudioState get _audioState {
+    if (_audioLoadedStep != _currentStep) return _AudioState.idle;
+    final st = _player.playerState;
+    if (st.processingState == ProcessingState.loading ||
+        st.processingState == ProcessingState.buffering && st.playing) {
+      return _AudioState.loading;
+    }
+    if (st.processingState == ProcessingState.completed) {
+      return _AudioState.completed;
+    }
+    return st.playing ? _AudioState.playing : _AudioState.paused;
+  }
+
+  Future<void> _toggleAudio() async {
+    HapticFeedback.lightImpact();
+    try {
+      switch (_audioState) {
+        case _AudioState.playing:
+          await _player.pause();
+        case _AudioState.paused:
+          await _player.play();
+        case _AudioState.completed:
+          await _player.seek(Duration.zero);
+          await _player.play();
+        case _AudioState.loading:
+          break;
+        case _AudioState.idle:
+          final kind = _audioKinds[_currentStep];
+          final url = Uri.parse(
+            'https://dashboard.myshankara.ai/get_darshan_audio/$kind',
+          ).replace(queryParameters: {'timezone': _timezone});
+          _audioLoadedStep = _currentStep;
+          await _player.setUrl(url.toString());
+          await _player.play();
+      }
+    } catch (_) {
+      _audioLoadedStep = null;
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Unable to play audio')));
+      }
+    }
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
@@ -219,14 +284,16 @@ class _DarshanScreenState extends State<DarshanScreen>
     setState(() => _diyaAnimating = true);
     Future.delayed(const Duration(milliseconds: 600), () async {
       if (mounted) {
-        setState(() { _diyaLit = true; _diyaAnimating = false; });
+        setState(() {
+          _diyaLit = true;
+          _diyaAnimating = false;
+        });
         //DiyaService.lightDiya();
-        await DiyaService.lightDiya();          // ← await it
+        await DiyaService.lightDiya(); // ← await it
         widget.onDarshanComplete?.call();
       }
     });
   }
-
 
   void _showGuestDialog() {
     showDialog(
@@ -234,7 +301,9 @@ class _DarshanScreenState extends State<DarshanScreen>
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: Column(
@@ -292,7 +361,10 @@ class _DarshanScreenState extends State<DarshanScreen>
                       setState(() => _diyaAnimating = true);
                       Future.delayed(const Duration(milliseconds: 600), () {
                         if (mounted) {
-                          setState(() { _diyaLit = true; _diyaAnimating = false; });
+                          setState(() {
+                            _diyaLit = true;
+                            _diyaAnimating = false;
+                          });
                         }
                       });
                     },
@@ -319,7 +391,9 @@ class _DarshanScreenState extends State<DarshanScreen>
             duration: const Duration(milliseconds: 500),
             child: Image.asset(
               _backgrounds[_currentStep],
-              key: ValueKey('bg_$_currentStep'), // unique per step, not per path
+              key: ValueKey(
+                'bg_$_currentStep',
+              ), // unique per step, not per path
               fit: BoxFit.cover,
               width: double.infinity,
               height: double.infinity,
@@ -328,9 +402,7 @@ class _DarshanScreenState extends State<DarshanScreen>
 
           // Scrim so text stays legible over any background
           // Keep opacity low enough (≤0.55) so the background image shows through
-          Container(
-            color: AppColors.background.withValues(alpha: 0.40),
-          ),
+          Container(color: AppColors.background.withValues(alpha: 0.40)),
 
           SafeArea(
             child: Column(
@@ -346,6 +418,8 @@ class _DarshanScreenState extends State<DarshanScreen>
                   child: PageView(
                     controller: _pageController,
                     onPageChanged: (i) {
+                      _player.stop();
+                      _audioLoadedStep = null;
                       setState(() => _currentStep = i);
                       _dismissSwipeHint();
                     },
@@ -361,7 +435,9 @@ class _DarshanScreenState extends State<DarshanScreen>
                         diyaLit: _diyaLit,
                         diyaAnimating: _diyaAnimating,
                         glowAnim: _diyaGlowAnim,
-                        onLightDiya: () { _lightDiya(); },
+                        onLightDiya: () {
+                          _lightDiya();
+                        },
                         tomorrowHook: _tomorrowHook,
                         isGuest: _isGuest,
                       ),
@@ -375,6 +451,10 @@ class _DarshanScreenState extends State<DarshanScreen>
                   ctaColor: _ctaColors[_currentStep],
                   showHint: _showSwipeHint,
                   onCTA: _handleCTA,
+                  hasAudio: _hasAudio[_currentStep],
+                  audioState: _audioState,
+                  onAudio: _toggleAudio,
+                  player: _player,
                 ),
               ],
             ),
@@ -510,7 +590,7 @@ class _ScreenHero extends StatelessWidget {
   const _ScreenHero({
     required this.icon,
     required this.eyebrow,
-    required this.title
+    required this.title,
   });
 
   @override
@@ -621,7 +701,10 @@ class _LotusDivider extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.9)),
+          child: Container(
+            height: 1,
+            color: AppColors.primary.withValues(alpha: 0.9),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -634,12 +717,14 @@ class _LotusDivider extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: Container(height: 1, color: AppColors.primary.withValues(alpha: 0.9)),
+          child: Container(
+            height: 1,
+            color: AppColors.primary.withValues(alpha: 0.9),
+          ),
         ),
       ],
     );
   }
-
 }
 
 /// Markdown style sheet shared by the Story and Insight screens, mapped onto
@@ -851,7 +936,7 @@ class _InterpretationScreen extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'When you change the way you see, '
-                        'everything you do changes.',
+                    'everything you do changes.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppColors.onBackground,
                       fontWeight: FontWeight.w700,
@@ -919,10 +1004,7 @@ class _ReflectionBlessingScreen extends StatelessWidget {
           // ── Reflection section ──────────────────────────────────────────
           const Align(
             alignment: Alignment.centerLeft,
-            child: _SectionLabel(
-              icon: Icons.eco_rounded,
-              label: 'Reflection',
-            ),
+            child: _SectionLabel(icon: Icons.eco_rounded, label: 'Reflection'),
           ),
           const SizedBox(height: 10),
 
@@ -935,16 +1017,14 @@ class _ReflectionBlessingScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // ── Blessing section ────────────────────────────────────────────
-
           const Align(
             alignment: Alignment.centerLeft,
-            child: _SectionLabel(
-              icon: Icons.stars_rounded,
-              label: 'Blessing',
-            ),
+            child: _SectionLabel(icon: Icons.stars_rounded, label: 'Blessing'),
           ),
           const SizedBox(height: 10),
-          _ReflectionPrompt(blessing.isNotEmpty ? blessing : 'May this wisdom stay with you.'),
+          _ReflectionPrompt(
+            blessing.isNotEmpty ? blessing : 'May this wisdom stay with you.',
+          ),
           const SizedBox(height: 24),
 
           // Image
@@ -1019,7 +1099,6 @@ class _DiyaScreen extends StatelessWidget {
   final String tomorrowHook;
   final bool isGuest;
 
-
   const _DiyaScreen({
     required this.diyaLit,
     required this.diyaAnimating,
@@ -1066,7 +1145,9 @@ class _DiyaScreen extends StatelessWidget {
               onPressed: diyaLit ? null : onLightDiya,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.accent,
-                disabledBackgroundColor: AppColors.accent.withValues(alpha: 0.45),
+                disabledBackgroundColor: AppColors.accent.withValues(
+                  alpha: 0.45,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -1092,7 +1173,9 @@ class _DiyaScreen extends StatelessWidget {
                 // Background image
                 Positioned.fill(
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12), // match your card radius
+                    borderRadius: BorderRadius.circular(
+                      12,
+                    ), // match your card radius
                     child: Image.asset(
                       'assets/backgrounds/sunrise_background.png',
                       fit: BoxFit.cover,
@@ -1109,7 +1192,8 @@ class _DiyaScreen extends StatelessWidget {
                         width: 30,
                         height: 30,
                         color: AppColors.accent,
-                        colorBlendMode: BlendMode.srcIn, //  applies color only to non-transparent pixels
+                        colorBlendMode: BlendMode
+                            .srcIn, //  applies color only to non-transparent pixels
                       ),
 
                       Text(
@@ -1117,12 +1201,14 @@ class _DiyaScreen extends StatelessWidget {
                         style: theme.textTheme.bodyLarge?.copyWith(
                           color: const Color(0xFF5B2D08),
                           fontWeight: FontWeight.w700,
-                          fontSize: 20
+                          fontSize: 20,
                         ),
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        tomorrowHook.isNotEmpty ? tomorrowHook : 'The Journey Continues',
+                        tomorrowHook.isNotEmpty
+                            ? tomorrowHook
+                            : 'The Journey Continues',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: AppColors.onBackground,
@@ -1135,7 +1221,6 @@ class _DiyaScreen extends StatelessWidget {
               ],
             ),
           ),
-
         ],
       ),
     );
@@ -1151,6 +1236,10 @@ class _DarshanCTA extends StatelessWidget {
   final Color ctaColor;
   final bool showHint;
   final VoidCallback onCTA;
+  final bool hasAudio;
+  final _AudioState audioState;
+  final VoidCallback onAudio;
+  final AudioPlayer player;
 
   const _DarshanCTA({
     required this.step,
@@ -1158,12 +1247,36 @@ class _DarshanCTA extends StatelessWidget {
     required this.ctaColor,
     required this.showHint,
     required this.onCTA,
+    required this.hasAudio,
+    required this.audioState,
+    required this.onAudio,
+    required this.player,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showProgress = hasAudio &&
+        (audioState == _AudioState.playing ||
+            audioState == _AudioState.paused ||
+            audioState == _AudioState.completed);
 
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _buildBody(context, theme),
+        if (showProgress)
+          Positioned(
+            top: -4,
+            left: 0,
+            right: 0,
+            child: _AudioProgressLine(player: player, color: ctaColor),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildBody(BuildContext context, ThemeData theme) {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 10, 24, 14),
       decoration: BoxDecoration(
@@ -1173,40 +1286,53 @@ class _DarshanCTA extends StatelessWidget {
       ),
       child: Column(
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: FilledButton(
-              onPressed: onCTA,
-              style: FilledButton.styleFrom(
-                // Per-step color: saffron → indigo → green → terracotta
-                backgroundColor: ctaColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          Row(
+            children: [
+              if (hasAudio) ...[
+                _AudioButton(
+                  state: audioState,
+                  color: ctaColor,
+                  onTap: onAudio,
                 ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    ctaLabel,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: AppColors.onPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: SizedBox(
+                  height: 54,
+                  child: FilledButton(
+                    onPressed: onCTA,
+                    style: FilledButton.styleFrom(
+                      // Per-step color: saffron → indigo → green → terracotta
+                      backgroundColor: ctaColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          ctaLabel,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: AppColors.onPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          step == 3
+                              ? Icons.check_rounded
+                              : Icons.arrow_forward_rounded,
+                          size: 18,
+                          color: AppColors.onPrimary,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    step == 3
-                        ? Icons.check_rounded
-                        : Icons.arrow_forward_rounded,
-                    size: 18,
-                    color: AppColors.onPrimary,
-                  ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
           AnimatedSize(
             duration: const Duration(milliseconds: 250),
@@ -1226,6 +1352,145 @@ class _DarshanCTA extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIO BUTTON — square; one icon that transitions with playback state
+// ─────────────────────────────────────────────────────────────────────────────
+enum _AudioState { idle, loading, playing, paused, completed }
+
+class _AudioButton extends StatelessWidget {
+  final _AudioState state;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _AudioButton({
+    required this.state,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget icon;
+    switch (state) {
+      case _AudioState.loading:
+        icon = SizedBox(
+          key: const ValueKey('loading'),
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: AppColors.onPrimary,
+          ),
+        );
+      case _AudioState.playing:
+        icon = Icon(
+          Icons.pause_rounded,
+          key: const ValueKey('pause'),
+          size: 28,
+          color: AppColors.onPrimary,
+        );
+      case _AudioState.completed:
+        icon = Icon(
+          Icons.replay_rounded,
+          key: const ValueKey('replay'),
+          size: 28,
+          color: AppColors.onPrimary,
+        );
+      case _AudioState.idle:
+      case _AudioState.paused:
+        icon = Icon(
+          Icons.play_arrow_rounded,
+          key: const ValueKey('play'),
+          size: 28,
+          color: AppColors.onPrimary,
+        );
+    }
+
+    return SizedBox(
+      width: 54,
+      height: 54,
+      child: FilledButton(
+        onPressed: state == _AudioState.loading ? null : onTap,
+        style: FilledButton.styleFrom(
+          padding: EdgeInsets.zero,
+          backgroundColor: color,
+          disabledBackgroundColor: color,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          transitionBuilder: (child, anim) => ScaleTransition(
+            scale: anim,
+            child: FadeTransition(opacity: anim, child: child),
+          ),
+          child: icon,
+        ),
+      ),
+    );
+  }
+}
+
+/// Thin progress line with a white dot, drawn over the top edge of the CTA bar.
+class _AudioProgressLine extends StatelessWidget {
+  final AudioPlayer player;
+  final Color color;
+
+  const _AudioProgressLine({required this.player, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Duration>(
+      stream: player.positionStream,
+      builder: (context, snap) {
+        final total = player.duration?.inMilliseconds ?? 0;
+        final pos = (snap.data ?? player.position).inMilliseconds;
+        final value = total > 0 ? (pos / total).clamp(0.0, 1.0) : 0.0;
+        return LayoutBuilder(
+          builder: (context, c) {
+            const dot = 10.0;
+            final x = c.maxWidth * value;
+            return SizedBox(
+              height: dot,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    left: 0,
+                    top: (dot - 2) / 2,
+                    width: x,
+                    height: 2,
+                    child: ColoredBox(color: color),
+                  ),
+                  Positioned(
+                    left: (x - dot / 2).clamp(0.0, c.maxWidth - dot),
+                    top: 0,
+                    child: Container(
+                      width: dot,
+                      height: dot,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
