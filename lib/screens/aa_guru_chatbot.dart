@@ -1,13 +1,13 @@
 import 'package:flutter/gestures.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:myshankara/theme/app_theme.dart';
-import '../main.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
-
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -84,7 +84,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: Column(
@@ -93,8 +95,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
                 Text(
                   'Daily Limit Reached',
                   style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 30
+                    fontWeight: FontWeight.w500,
+                    fontSize: 30,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -190,12 +192,12 @@ class _ChatbotPageState extends State<ChatbotPage> {
         .doc(_currentChatId)
         .collection('messages')
         .add({
-      'role': msg.role.name,
-      'text': msg.text,
-      'timestamp': FieldValue.serverTimestamp(),
-      if (msg.messageId != null) 'messageId': msg.messageId,
-      'feedback': msg.feedback.name,
-    });
+          'role': msg.role.name,
+          'text': msg.text,
+          'timestamp': FieldValue.serverTimestamp(),
+          if (msg.messageId != null) 'messageId': msg.messageId,
+          'feedback': msg.feedback.name,
+        });
 
     await _firestore
         .collection('users')
@@ -211,9 +213,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
   /// message, so it loads back correctly next time the chat is opened.
   Future<void> _persistFeedback(_Msg msg) async {
     final uid = getUid();
-    if (uid == null ||
-        _currentChatId.isEmpty ||
-        msg.firestoreDocId == null) {
+    if (uid == null || _currentChatId.isEmpty || msg.firestoreDocId == null) {
       return;
     }
     try {
@@ -317,7 +317,8 @@ class _ChatbotPageState extends State<ChatbotPage> {
         .collection('chats')
         .doc(chatId)
         .get();
-    _difyConversationId = (chatDoc.data()?['difyConversationId'] ?? '') as String;
+    _difyConversationId =
+        (chatDoc.data()?['difyConversationId'] ?? '') as String;
 
     final msgs = await _firestore
         .collection('users')
@@ -416,9 +417,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
         .doc(uid)
         .collection('chats')
         .add({
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastMessage': firstMessageText,
-    });
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastMessage': firstMessageText,
+        });
 
     _currentChatId = doc.id;
   }
@@ -442,7 +443,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
   String _getChatTitle() {
     final firstUserMsg = _messages.firstWhere(
-          (msg) => msg.role == Role.user,
+      (msg) => msg.role == Role.user,
       orElse: () => _Msg(role: Role.bot, text: 'New Chat', ts: DateTime.now()),
     );
 
@@ -482,7 +483,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
       try {
         await _deleteDifyConversation(session.difyConversationId);
       } catch (_) {
-        _showTransientError("Couldn't delete the conversation from the assistant.");
+        _showTransientError(
+          "Couldn't delete the conversation from the assistant.",
+        );
         if (mounted) unawaited(_loadChatsFromFirestore());
         return;
       }
@@ -501,8 +504,11 @@ class _ChatbotPageState extends State<ChatbotPage> {
     final uid = getUid();
     if (uid == null || chatId.isEmpty) return;
 
-    final chatRef =
-        _firestore.collection('users').doc(uid).collection('chats').doc(chatId);
+    final chatRef = _firestore
+        .collection('users')
+        .doc(uid)
+        .collection('chats')
+        .doc(chatId);
 
     final msgs = await chatRef.collection('messages').get();
     final batch = _firestore.batch();
@@ -513,12 +519,14 @@ class _ChatbotPageState extends State<ChatbotPage> {
     await batch.commit();
   }
 
-  void _showTransientError(String message,
-      {Duration duration = const Duration(seconds: 2)}) {
+  void _showTransientError(
+    String message, {
+    Duration duration = const Duration(seconds: 2),
+  }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: duration),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), duration: duration));
   }
 
   void _seedFirstMessage() {
@@ -597,8 +605,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
       if (!mounted) return;
 
       // Final cleanup applies to the finished text only, not each chunk.
-      final cleaned =
-          botMsg.text.trim().replaceAll(RegExp(r'\n{3,}'), '\n\n');
+      final cleaned = botMsg.text.trim().replaceAll(RegExp(r'\n{3,}'), '\n\n');
       setState(() {
         _streaming = false;
         if (cleaned.isEmpty) {
@@ -629,12 +636,15 @@ class _ChatbotPageState extends State<ChatbotPage> {
       if (!mounted) return;
       setState(() {
         _messages.removeWhere(
-            (m) => identical(m, _streamingMsg) && m.text.isEmpty);
-        _messages.add(_Msg(
-          role: Role.bot,
-          text: "Sorry, I couldn't get a reply right now.",
-          ts: DateTime.now(),
-        ));
+          (m) => identical(m, _streamingMsg) && m.text.isEmpty,
+        );
+        _messages.add(
+          _Msg(
+            role: Role.bot,
+            text: "Sorry, I couldn't get a reply right now.",
+            ts: DateTime.now(),
+          ),
+        );
       });
     } finally {
       if (mounted) {
@@ -661,19 +671,21 @@ class _ChatbotPageState extends State<ChatbotPage> {
     _stopRequested = false;
     _pendingText = '';
 
-    // Reveal ~1/30th of the backlog per tick (at least one character), so
-    // short replies type out steadily and long ones still catch up.
+    // Reveal text at a steady pace (about 100 characters a second). The step
+    // only grows when a large backlog builds up, so short replies type out
+    // evenly and long ones still catch up without a slow crawl at the end.
     _typer?.cancel();
-    _typer = Timer.periodic(const Duration(milliseconds: 30), (_) {
+    _typer = Timer.periodic(const Duration(milliseconds: 20), (_) {
       if (_pendingText.isEmpty || !mounted) return;
-      var n = (_pendingText.length ~/ 30).clamp(1, _pendingText.length);
+      var n = (_pendingText.length ~/ 40).clamp(2, 8);
+      if (n > _pendingText.length) n = _pendingText.length;
       // Don't cut an emoji (surrogate pair) in half.
       final last = _pendingText.codeUnitAt(n - 1);
       if (n < _pendingText.length && last >= 0xD800 && last <= 0xDBFF) n++;
       final piece = _pendingText.substring(0, n);
       _pendingText = _pendingText.substring(n);
       setState(() => botMsg.text += piece);
-      _followStream();
+      // The reversed list keeps the bottom in view; no scrolling needed.
     });
 
     void dispatch(String? event, String raw) {
@@ -700,7 +712,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
           _pendingText = '';
           if (!mounted) return;
           setState(() => botMsg.text = (data['text'] ?? '').toString());
-          _followStream();
+        // The reversed list keeps the bottom in view; no scrolling needed.
         case 'done':
           outcome.done = true;
           final cid = data['conversation_id']?.toString() ?? '';
@@ -725,24 +737,32 @@ class _ChatbotPageState extends State<ChatbotPage> {
     try {
       var resp = await _openChatStream(client, query, await _idToken());
       if (resp.statusCode == 401) {
-        final err =
-            _parseProxyError(resp.statusCode, await resp.stream.bytesToString());
+        final err = _parseProxyError(
+          resp.statusCode,
+          await resp.stream.bytesToString(),
+        );
         if (err.code != 'token_expired') throw err;
         resp = await _openChatStream(
-            client, query, await _idToken(forceRefresh: true));
+          client,
+          query,
+          await _idToken(forceRefresh: true),
+        );
       }
       if (resp.statusCode != 200) {
         throw _parseProxyError(
-            resp.statusCode, await resp.stream.bytesToString());
+          resp.statusCode,
+          await resp.stream.bytesToString(),
+        );
       }
 
       // SSE: "event: X" / "data: {json}" lines; a blank line ends a frame;
       // lines starting with ":" are comments (pings).
       String? event;
       final dataLines = <String>[];
-      await for (final line in resp.stream
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
+      await for (final line
+          in resp.stream
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
         if (line.isEmpty) {
           if (dataLines.isNotEmpty) dispatch(event, dataLines.join('\n'));
           event = null;
@@ -786,7 +806,10 @@ class _ChatbotPageState extends State<ChatbotPage> {
   }
 
   Future<http.StreamedResponse> _openChatStream(
-      http.Client client, String query, String token) {
+    http.Client client,
+    String query,
+    String token,
+  ) {
     final req = http.Request('POST', Uri.parse('$_proxyBaseUrl/chat'))
       ..headers.addAll({
         'Authorization': 'Bearer $token',
@@ -826,33 +849,28 @@ class _ChatbotPageState extends State<ChatbotPage> {
       _showLimitReachedDialog();
       return;
     }
-    _showTransientError(error.userMessage,
-        duration: const Duration(seconds: 4));
+    _showTransientError(
+      error.userMessage,
+      duration: const Duration(seconds: 4),
+    );
     if (error.code == 'no_active_entitlement' && mounted) {
       context.push('/guru-dakshina');
     }
   }
 
-  /// Keeps the newest text in view while streaming, unless the user has
-  /// scrolled up to read earlier messages.
-  void _followStream() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
-      final pos = _scroll.position;
-      if (pos.maxScrollExtent - pos.pixels > 200) return;
-      _scroll.jumpTo(pos.maxScrollExtent);
-    });
-  }
+  /// 1 while the standalone typing dots are shown below the last message.
+  int get _typingExtra => _botTyping && _streamingMsg == null ? 1 : 0;
 
   void _onTerms() => context.push('/terms-of-service');
   void _onPrivacy() => context.push('/privacy-policy');
 
+  /// The message list is reversed, so offset 0 is the bottom.
   void _jumpToBottomSoon() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
+      if (!_scroll.hasClients || _scroll.offset == 0) return;
       _scroll.animateTo(
-        _scroll.position.maxScrollExtent + 80,
-        duration: const Duration(milliseconds: 250),
+        0,
+        duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
       );
     });
@@ -873,15 +891,19 @@ class _ChatbotPageState extends State<ChatbotPage> {
   // ── Dialogs ────────────────────────────────────────────────────────────────
 
   void _confirmDelete(
-      BuildContext context, _ChatSession chat, bool isCurrentChat,
-      {VoidCallback? onDeleted}) {
+    BuildContext context,
+    _ChatSession chat,
+    bool isCurrentChat, {
+    VoidCallback? onDeleted,
+  }) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24)),
+            borderRadius: BorderRadius.circular(24),
+          ),
           titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 20),
           actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           title: const Text(
@@ -985,89 +1007,95 @@ class _ChatbotPageState extends State<ChatbotPage> {
                   Expanded(
                     child: _chatHistory.isEmpty
                         ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.chat_outlined,
-                            size: 64,
-                            color: onBg.withOpacity(0.3),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No chat history yet',
-                            style: TextStyle(
-                              color: onBg.withOpacity(0.5),
-                              fontSize: 16,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.chat_outlined,
+                                  size: 64,
+                                  color: onBg.withOpacity(0.3),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No chat history yet',
+                                  style: TextStyle(
+                                    color: onBg.withOpacity(0.5),
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
-                    )
+                          )
                         : ListView.separated(
-                      itemCount: _chatHistory.length,
-                      separatorBuilder: (_, __) => Divider(
-                        height: 1,
-                        thickness: 1,
-                        indent: 16,
-                        endIndent: 16,
-                        color: AppColors.outline.withOpacity(0.5),
-                      ),
-                      itemBuilder: (context, index) {
-                        final chat = _chatHistory[index];
-                        final isCurrentChat = chat.id == _currentChatId;
+                            itemCount: _chatHistory.length,
+                            separatorBuilder: (_, __) => Divider(
+                              height: 1,
+                              thickness: 1,
+                              indent: 16,
+                              endIndent: 16,
+                              color: AppColors.outline.withOpacity(0.5),
+                            ),
+                            itemBuilder: (context, index) {
+                              final chat = _chatHistory[index];
+                              final isCurrentChat = chat.id == _currentChatId;
 
-                        return ListTile(
-                          selected: isCurrentChat,
-                          selectedTileColor:
-                              brand.accentButton.withOpacity(0.1),
-                          hoverColor:
-                              theme.colorScheme.primary.withOpacity(0.06),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          title: Text(
-                            chat.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: isCurrentChat
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              fontSize: 17,
-                              color: theme.colorScheme.onSurface,
-                            ),
+                              return ListTile(
+                                selected: isCurrentChat,
+                                selectedTileColor: brand.accentButton
+                                    .withOpacity(0.1),
+                                hoverColor: theme.colorScheme.primary
+                                    .withOpacity(0.06),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 4,
+                                ),
+                                title: Text(
+                                  chat.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: isCurrentChat
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    fontSize: 17,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  _formatChatTime(
+                                    chat.timestamp,
+                                    isCurrentChat,
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isCurrentChat
+                                        ? brand.accentButton
+                                        : theme.colorScheme.onSurface
+                                              .withOpacity(0.6),
+                                    fontWeight: isCurrentChat
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    Icons.delete_outline,
+                                    color: theme.colorScheme.error,
+                                  ),
+                                  onPressed: () => _confirmDelete(
+                                    context,
+                                    chat,
+                                    isCurrentChat,
+                                    onDeleted: () => setSheetState(() {}),
+                                  ),
+                                ),
+                                onTap: () {
+                                  Navigator.pop(sheetContext);
+                                  _loadChatFromFirestore(chat.id);
+                                },
+                              );
+                            },
                           ),
-                          subtitle: Text(
-                            _formatChatTime(
-                                chat.timestamp, isCurrentChat),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isCurrentChat
-                                  ? brand.accentButton
-                                  : theme.colorScheme.onSurface
-                                  .withOpacity(0.6),
-                              fontWeight: isCurrentChat
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          trailing: IconButton(
-                            icon: Icon(Icons.delete_outline,
-                                color: theme.colorScheme.error),
-                            onPressed: () => _confirmDelete(
-                              context,
-                              chat,
-                              isCurrentChat,
-                              onDeleted: () => setSheetState(() {}),
-                            ),
-                          ),
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            _loadChatFromFirestore(chat.id);
-                          },
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -1110,66 +1138,79 @@ class _ChatbotPageState extends State<ChatbotPage> {
         child: Column(
           children: [
             // ── Guest limit banner ───────────────────────────────────────────
-            if (_isGuest) _GuestLimitBanner(
-              usedToday: _guestMessagesUsed,
-              onSignUp: () {
-                context.go('/login');
-              },
-            ),
+            if (_isGuest)
+              _GuestLimitBanner(
+                usedToday: _guestMessagesUsed,
+                onSignUp: () {
+                  context.go('/login');
+                },
+              ),
 
             Expanded(
-              child: ListView.builder(
+              // Reversed list: scroll offset 0 is the bottom, so a streaming
+              // reply grows upward in the same frame instead of being pushed
+              // below the composer and scrolled back one frame later (which
+              // made the bottom of the bubble flicker on every new line).
+              child: CustomScrollView(
                 controller: _scroll,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 16),
-                itemCount: _messages.length +
-                    (_botTyping && _streamingMsg == null ? 1 : 0),
-                itemBuilder: (context, index) {
-                  return ListenableBuilder(
-                    listenable: context
-                        .findAncestorWidgetOfExactType<MyApp>()!
-                        .appState,
-                    builder: (context, _) {
-                      final preferredName = context
-                          .findAncestorWidgetOfExactType<MyApp>()!
-                          .appState
-                          .preferredName ??
-                          'Sishya';
+                reverse: true,
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 16,
+                    ),
+                    sliver: SliverList.builder(
+                      itemCount: _messages.length + _typingExtra,
+                      itemBuilder: (context, rIndex) {
+                        // rIndex 0 is the bottom-most item.
+                        if (rIndex < _typingExtra) return const _TypingBubble();
 
-                      if (index >= _messages.length) {
-                        return const _TypingBubble();
-                      }
+                        final msg =
+                            _messages[_messages.length -
+                                1 -
+                                (rIndex - _typingExtra)];
+                        final isUser = msg.role == Role.user;
+                        final isStreamingMsg = identical(msg, _streamingMsg);
 
-                      final msg = _messages[index];
-                      final isUser = msg.role == Role.user;
+                        // Streaming bubble with no text yet: show the dots.
+                        if (isStreamingMsg && msg.text.trim().isEmpty) {
+                          return const _TypingBubble();
+                        }
 
-                      // Streaming bubble with no text yet: show the dots.
-                      if (identical(msg, _streamingMsg) &&
-                          msg.text.trim().isEmpty) {
-                        return const _TypingBubble();
-                      }
+                        if (msg.isWelcome) {
+                          return _WelcomeMessage(
+                            greeting:
+                                'I am here. What would you like to share?',
+                          );
+                        }
 
-                      if (msg.isWelcome) {
-                        return _WelcomeMessage(
-                            greeting: 'I am here. What would you like to share?');
-                      }
-
-                      return _MessageBubble(
-                        key: ValueKey(
-                            '${_currentChatId}_${index}_${msg.ts.microsecondsSinceEpoch}'),
-                        text: msg.text,
-                        isUser: isUser,
-                        time: _fmtTime(msg.ts),
-                        messageId: msg.messageId,
-                        feedback: msg.feedback,
-                        onFeedbackChanged: (thumb) {
-                          msg.feedback = thumb;
-                          _persistFeedback(msg);
-                        },
-                      );
-                    },
-                  );
-                },
+                        return _MessageBubble(
+                          // Stable key per message object, so the bubble is not
+                          // rebuilt from scratch while the reply streams in.
+                          key: ObjectKey(msg),
+                          text: msg.text,
+                          isUser: isUser,
+                          time: _fmtTime(msg.ts),
+                          messageId: msg.messageId,
+                          feedback: msg.feedback,
+                          // Thumbs / copy row appears only once the reply is done,
+                          // so it doesn't push the layout around while streaming.
+                          showActions: !isStreamingMsg,
+                          onFeedbackChanged: (thumb) {
+                            msg.feedback = thumb;
+                            _persistFeedback(msg);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  // Keeps short conversations pinned to the top of the screen.
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: SizedBox.shrink(),
+                  ),
+                ],
               ),
             ),
 
@@ -1195,17 +1236,22 @@ class _ChatbotPageState extends State<ChatbotPage> {
                             filled: true,
                             fillColor: theme.colorScheme.surface,
                             contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 12),
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide:
-                              BorderSide(color: onBg.withOpacity(0.08)),
+                              borderSide: BorderSide(
+                                color: onBg.withOpacity(0.08),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
                               borderSide: BorderSide(
-                                  color: theme.colorScheme.primary
-                                      .withOpacity(0.4)),
+                                color: theme.colorScheme.primary.withOpacity(
+                                  0.4,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -1222,8 +1268,11 @@ class _ChatbotPageState extends State<ChatbotPage> {
                               : AppColors.accent,
                           radius: 20,
                           child: _streaming
-                              ? Icon(Icons.stop_rounded,
-                                  size: 24, color: AppColors.primary)
+                              ? Icon(
+                                  Icons.stop_rounded,
+                                  size: 24,
+                                  color: AppColors.primary,
+                                )
                               : Padding(
                                   padding: const EdgeInsets.all(4.0),
                                   child: Image.asset(
@@ -1247,7 +1296,6 @@ class _ChatbotPageState extends State<ChatbotPage> {
       ), // SafeArea
     );
   }
-
 }
 
 // ─── Guest limit banner ────────────────────────────────────────────────────────
@@ -1259,14 +1307,14 @@ class _GuestLimitBanner extends StatelessWidget {
   final int usedToday;
   final VoidCallback onSignUp;
 
-  const _GuestLimitBanner({
-    required this.usedToday,
-    required this.onSignUp,
-  });
+  const _GuestLimitBanner({required this.usedToday, required this.onSignUp});
 
   @override
   Widget build(BuildContext context) {
-    final remaining = (_kGuestDailyLimit - usedToday).clamp(0, _kGuestDailyLimit);
+    final remaining = (_kGuestDailyLimit - usedToday).clamp(
+      0,
+      _kGuestDailyLimit,
+    );
     final theme = Theme.of(context);
 
     return Material(
@@ -1287,8 +1335,7 @@ class _GuestLimitBanner extends StatelessWidget {
             TextButton(
               onPressed: onSignUp,
               style: TextButton.styleFrom(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
@@ -1314,10 +1361,7 @@ class _ChatDisclaimer extends StatelessWidget {
   final VoidCallback onTerms;
   final VoidCallback onPrivacy;
 
-  const _ChatDisclaimer({
-    required this.onTerms,
-    required this.onPrivacy,
-  });
+  const _ChatDisclaimer({required this.onTerms, required this.onPrivacy});
 
   @override
   Widget build(BuildContext context) {
@@ -1338,7 +1382,8 @@ class _ChatDisclaimer extends StatelessWidget {
         style: style,
         children: [
           const TextSpan(
-            text: 'AI-generated responses may be inaccurate • Do not share '
+            text:
+                'AI-generated responses may be inaccurate • Do not share '
                 'sensitive information • ',
           ),
           TextSpan(
@@ -1417,6 +1462,48 @@ class _ChatSession {
 
 // ─── Widgets ───────────────────────────────────────────────────────────────────
 
+/// Markdown styles for Guru replies, all drawn in the bubble's text colour so
+/// they stay readable on the primary-coloured background.
+MarkdownStyleSheet _guruMarkdownStyleSheet(Color color) {
+  final base = TextStyle(color: color, height: 1.5, fontSize: 16);
+  return MarkdownStyleSheet(
+    p: base,
+    strong: base.copyWith(fontWeight: FontWeight.w700),
+    em: base.copyWith(fontStyle: FontStyle.italic),
+    h1: base.copyWith(fontSize: 20, fontWeight: FontWeight.w800),
+    h2: base.copyWith(fontSize: 18, fontWeight: FontWeight.w800),
+    h3: base.copyWith(fontSize: 17, fontWeight: FontWeight.w700),
+    h4: base.copyWith(fontWeight: FontWeight.w700),
+    h5: base.copyWith(fontWeight: FontWeight.w700),
+    h6: base.copyWith(fontWeight: FontWeight.w700),
+    listBullet: base,
+    a: base.copyWith(
+      fontWeight: FontWeight.w600,
+      decoration: TextDecoration.underline,
+      decorationColor: color,
+    ),
+    blockquote: base.copyWith(fontStyle: FontStyle.italic),
+    blockquoteDecoration: BoxDecoration(
+      color: color.withValues(alpha: 0.08),
+      border: Border(
+        left: BorderSide(color: color.withValues(alpha: 0.6), width: 3),
+      ),
+    ),
+    code: base.copyWith(
+      fontFamily: 'monospace',
+      fontSize: 14,
+      backgroundColor: color.withValues(alpha: 0.12),
+    ),
+    codeblockDecoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    horizontalRuleDecoration: BoxDecoration(
+      border: Border(top: BorderSide(color: color.withValues(alpha: 0.4))),
+    ),
+  );
+}
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     super.key,
@@ -1426,6 +1513,7 @@ class _MessageBubble extends StatelessWidget {
     this.messageId,
     this.feedback = _Thumb.none,
     this.onFeedbackChanged,
+    this.showActions = true,
   });
 
   final String text;
@@ -1434,6 +1522,7 @@ class _MessageBubble extends StatelessWidget {
   final String? messageId;
   final _Thumb feedback;
   final ValueChanged<_Thumb>? onFeedbackChanged;
+  final bool showActions;
 
   @override
   Widget build(BuildContext context) {
@@ -1443,9 +1532,7 @@ class _MessageBubble extends StatelessWidget {
         ? const Color(0xFFFFB300)
         : Theme.of(context).colorScheme.primary;
 
-    final textColor = isUser
-        ? const Color(0xFF000000)
-        : AppColors.onPrimary;
+    final textColor = isUser ? const Color(0xFF000000) : AppColors.onPrimary;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -1456,8 +1543,9 @@ class _MessageBubble extends StatelessWidget {
       child: Align(
         alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
         child: Column(
-          crossAxisAlignment:
-          isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isUser
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1478,8 +1566,13 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 Flexible(
                   child: Container(
+                    // Guru bubbles keep a constant width, so the text does not
+                    // re-wrap and the bubble does not jump while it streams.
+                    width: isUser ? null : double.infinity,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: bubbleColor,
                       borderRadius: BorderRadius.only(
@@ -1496,30 +1589,43 @@ class _MessageBubble extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: Text(
-                      text,
-                      style: TextStyle(
-                        color: textColor,
-                        height: 1.5,
-                        fontSize: 16,
-                      ),
-                    ),
+                    child: isUser
+                        ? Text(
+                            text,
+                            style: TextStyle(
+                              color: textColor,
+                              height: 1.5,
+                              fontSize: 16,
+                            ),
+                          )
+                        // Guru replies arrive as Markdown (bold, lists, ...).
+                        : MarkdownBody(
+                            data: text,
+                            styleSheet: _guruMarkdownStyleSheet(textColor),
+                            onTapLink: (_, href, __) {
+                              if (href != null) launchUrlString(href);
+                            },
+                          ),
                   ),
                 ),
               ],
             ),
-            if (!isUser) ...[
-              const SizedBox(height: 4),
-              Padding(
-                padding: const EdgeInsets.only(left: 40),
-                child: _MessageActions(
-                  text: text,
-                  messageId: messageId,
-                  initialFeedback: feedback,
-                  onFeedbackChanged: onFeedbackChanged ?? (_) {},
-                ),
+            if (!isUser)
+              AnimatedSize(
+                duration: const Duration(milliseconds: 150),
+                alignment: Alignment.topLeft,
+                child: showActions
+                    ? Padding(
+                        padding: const EdgeInsets.only(left: 40, top: 4),
+                        child: _MessageActions(
+                          text: text,
+                          messageId: messageId,
+                          initialFeedback: feedback,
+                          onFeedbackChanged: onFeedbackChanged ?? (_) {},
+                        ),
+                      )
+                    : const SizedBox.shrink(),
               ),
-            ],
           ],
         ),
       ),
@@ -1681,9 +1787,10 @@ class _MessageActionsState extends State<_MessageActions> {
         const SizedBox(width: 8),
         IconButton(
           icon: Icon(
-              _justCopied ? Icons.check : Icons.content_copy_outlined,
-              size: 18,
-              color: _justCopied ? AppColors.success : AppColors.secondary),
+            _justCopied ? Icons.check : Icons.content_copy_outlined,
+            size: 18,
+            color: _justCopied ? AppColors.success : AppColors.secondary,
+          ),
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           onPressed: _copyText,
@@ -1703,8 +1810,9 @@ class _TypingBubble extends StatefulWidget {
 class _TypingBubbleState extends State<_TypingBubble>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 900))
-    ..repeat();
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat();
 
   @override
   void dispose() {
@@ -1719,8 +1827,7 @@ class _TypingBubbleState extends State<_TypingBubble>
       alignment: Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
-        padding:
-        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest,
           borderRadius: const BorderRadius.only(
@@ -1737,9 +1844,11 @@ class _TypingBubbleState extends State<_TypingBubble>
               padding: EdgeInsets.only(right: i == 2 ? 0 : 6),
               child: FadeTransition(
                 opacity: Tween(begin: 0.2, end: 1.0).animate(
-                    CurvedAnimation(
-                        parent: _c,
-                        curve: Interval(i * 0.2, 0.6 + i * 0.2))),
+                  CurvedAnimation(
+                    parent: _c,
+                    curve: Interval(i * 0.2, 0.6 + i * 0.2),
+                  ),
+                ),
                 child: const _Dot(),
               ),
             );
@@ -1761,10 +1870,9 @@ class _Dot extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Theme.of(context)
-              .colorScheme
-              .onSurfaceVariant
-              .withOpacity(0.7),
+          color: Theme.of(
+            context,
+          ).colorScheme.onSurfaceVariant.withOpacity(0.7),
         ),
       ),
     );
@@ -1784,10 +1892,11 @@ class _WelcomeMessage extends StatelessWidget {
         children: [
           Image.asset('assets/images/Guru-Chat.png', width: 160, height: 160),
           const SizedBox(height: 16),
-          Text(greeting,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w600)),
+          Text(
+            greeting,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -1806,8 +1915,18 @@ String _fmtTime(DateTime t) {
 String _formatChatTime(DateTime t, bool isActive) {
   if (isActive) return 'Today • Active';
   final months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   return '${t.day} ${months[t.month - 1]} ${t.year}';
 }
@@ -1897,8 +2016,11 @@ Future<String> _idToken({bool forceRefresh = false}) async {
 
 /// Non-streaming proxy call. Retries once with a refreshed token when the
 /// proxy answers 401 `token_expired`. Returns the response whatever its status.
-Future<http.Response> _proxyRequest(String method, String path,
-    {Map<String, dynamic>? body}) async {
+Future<http.Response> _proxyRequest(
+  String method,
+  String path, {
+  Map<String, dynamic>? body,
+}) async {
   Future<http.Response> send(String token) {
     final uri = Uri.parse('$_proxyBaseUrl$path');
     final headers = {
@@ -1907,8 +2029,11 @@ Future<http.Response> _proxyRequest(String method, String path,
     };
     return method == 'DELETE'
         ? http.delete(uri, headers: headers)
-        : http.post(uri,
-            headers: headers, body: body == null ? null : jsonEncode(body));
+        : http.post(
+            uri,
+            headers: headers,
+            body: body == null ? null : jsonEncode(body),
+          );
   }
 
   var resp = await send(await _idToken());
@@ -2004,16 +2129,20 @@ Future<String?> _showFeedbackContentDialog(BuildContext context) {
                 filled: true,
                 fillColor: theme.colorScheme.surface,
                 contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 12),
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide:
-                      BorderSide(color: theme.colorScheme.onSurface.withOpacity(0.08)),
+                  borderSide: BorderSide(
+                    color: theme.colorScheme.onSurface.withOpacity(0.08),
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide: BorderSide(
-                      color: theme.colorScheme.primary.withOpacity(0.4)),
+                    color: theme.colorScheme.primary.withOpacity(0.4),
+                  ),
                 ),
               ),
             ),

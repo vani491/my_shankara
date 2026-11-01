@@ -244,7 +244,7 @@ class _ExistingUserLoginState extends State<ExistingUserLogin> {
       // 2. On successful login, GoRouter will handle the navigation
       //    based on the state (onboarding, email verification, profile completion).
       //    We just need to ensure the AppState listens for the auth change.
-      //    Since main.dart already calls appState.attachAuth(),
+      //    AppState (main.dart) listens to auth changes, so
       //    signing in is enough. We can optionally navigate to '/' to trigger
       //    the GoRouter redirect immediately, but the auth state listener should
       //    handle it. For simplicity, we can let GoRouter take over.

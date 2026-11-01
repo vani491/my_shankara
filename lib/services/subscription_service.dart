@@ -24,6 +24,7 @@ class SubscriptionService extends ChangeNotifier {
   final InAppPurchase _iap = InAppPurchase.instance;
   StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
   Timer? _restoreTimer;
+  Timer? _purchaseTimeout;
   bool _initialized = false;
   bool _restoreInFlight = false;
   bool _restoredSomething = false;
@@ -157,6 +158,7 @@ class SubscriptionService extends ChangeNotifier {
 
     _errorMessage = null;
     _isPurchasing = true;
+    _armPurchaseTimeout();
     notifyListeners();
 
     try {
@@ -206,6 +208,7 @@ class SubscriptionService extends ChangeNotifier {
     _isPurchasing = true;
     _restoreInFlight = true;
     _restoredSomething = false;
+    _armPurchaseTimeout();
     notifyListeners();
 
     try {
@@ -229,6 +232,20 @@ class SubscriptionService extends ChangeNotifier {
     });
   }
 
+  /// Safety net: if the store never reports a final result (sheet dismissed
+  /// without an event, lost callback), re-enable the buttons after 2 minutes.
+  void _armPurchaseTimeout() {
+    _purchaseTimeout?.cancel();
+    _purchaseTimeout = Timer(const Duration(minutes: 2), () {
+      if (!_isPurchasing) return;
+      debugPrint('SubscriptionService: purchase timed out — resetting state');
+      _restoreTimer?.cancel();
+      _restoreInFlight = false;
+      _isPurchasing = false;
+      notifyListeners();
+    });
+  }
+
   void clearError() {
     if (_errorMessage == null) return;
     _errorMessage = null;
@@ -239,6 +256,19 @@ class SubscriptionService extends ChangeNotifier {
 
   Future<void> _onPurchaseUpdates(List<PurchaseDetails> purchases) async {
     for (final purchase in purchases) {
+      // Android reports a closed sheet or a failed launch with an EMPTY
+      // productID, so it would be skipped as "not ours" below and the button
+      // would stay disabled. End the purchase here instead.
+      if (purchase.productID.isEmpty && _isPurchasing) {
+        if (purchase.status == PurchaseStatus.canceled) {
+          _failPurchase('Purchase cancelled.');
+        } else if (purchase.status == PurchaseStatus.error) {
+          debugPrint('SubscriptionService: purchase error: ${purchase.error}');
+          _failPurchase(
+              'The purchase could not be completed. You have not been charged.');
+        }
+      }
+
       if (purchase.productID != productId) {
         // Not ours — but a pending transaction must still be completed.
         if (purchase.pendingCompletePurchase) {
@@ -294,6 +324,7 @@ class SubscriptionService extends ChangeNotifier {
       _errorMessage = "Your purchase went through, but we couldn't update your "
           'account. Please tap Restore Purchases.';
     } finally {
+      _purchaseTimeout?.cancel();
       _isPurchasing = false;
       notifyListeners();
     }
@@ -308,6 +339,7 @@ class SubscriptionService extends ChangeNotifier {
   }
 
   void _failPurchase(String message) {
+    _purchaseTimeout?.cancel();
     _restoreTimer?.cancel();
     _restoreInFlight = false;
     _isPurchasing = false;
@@ -338,6 +370,7 @@ class SubscriptionService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _purchaseTimeout?.cancel();
     _restoreTimer?.cancel();
     _purchaseSub?.cancel();
     _purchaseSub = null;

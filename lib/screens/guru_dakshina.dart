@@ -39,6 +39,9 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
   String get _localizedPrice =>
       _subscription.price ?? (_subscription.isLoadingProducts ? '…' : '—');
 
+  String get _storeName =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 'Apple' : 'Google Play';
+
   @override
   void initState() {
     super.initState();
@@ -131,7 +134,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
         final daysElapsed =
             DateTime.now().difference(trialTs.toDate()).inDays;
         final remaining =
-            (_trialLengthDays - daysElapsed).clamp(0, _trialLengthDays);
+        (_trialLengthDays - daysElapsed).clamp(0, _trialLengthDays);
         if (mounted) {
           setState(() {
             _status = MembershipStatus.trial;
@@ -164,7 +167,6 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
 
     if (_isLoading) {
       return Scaffold(
@@ -185,28 +187,29 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 24),
-              // ── Subtitle ──
-              Text(
-                'Your membership contribution helps sustain MyShankara and '
-                    'preserve timeless wisdom.',
-                style: tt.bodyMedium?.copyWith(
-                  color: cs.onSurface.withValues(alpha: 0.7),
-                  height: 1.5,
-                ),
-              ),
+              _header(context),
               const SizedBox(height: 24),
-
-              // ── Status chip ──
               _statusChip(context),
               const SizedBox(height: 20),
-
-              // ── State-specific content ──
               if (_status == MembershipStatus.guest) _guestView(context),
               if (_status == MembershipStatus.trial) _trialView(context),
               if (_status == MembershipStatus.active) _activeView(context),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Header: title + subtitle ──────────────────────────────────────────────
+  Widget _header(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Text(
+      'Support timeless wisdom for everyday life.',
+      style: tt.bodyMedium?.copyWith(
+        color: cs.onSurface.withValues(alpha: 0.7),
+        height: 1.5,
       ),
     );
   }
@@ -273,16 +276,8 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
           style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 20),
-        _benefitsCard(
-          context,
-          title: 'Trial & Membership Benefits',
-          benefits: const [
-            'Full Daily Darshan access',
-            'Diya Tracker',
-            'Unlimited Guru Chat',
-          ],
-        ),
-        const SizedBox(height: 24),
+        _membershipIncludes(context),
+        const SizedBox(height: 28),
         _primaryButton(
           context,
           label: 'Start 30-Day Free Trial',
@@ -296,6 +291,14 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
   Widget _trialView(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+    final expired = _trialDaysRemaining <= 0;
+    final bannerColor = expired ? cs.error : AppColors.accent;
+    final bannerText = expired
+        ? 'Your free trial has ended'
+        : _trialDaysRemaining == 1
+        ? '1 day left in your free trial'
+        : '$_trialDaysRemaining days left in your free trial';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -304,40 +307,45 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppColors.accent.withValues(alpha: 0.10),
+            color: bannerColor.withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+            border: Border.all(color: bannerColor.withValues(alpha: 0.3)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.timer_outlined, color: AppColors.accent),
+              Icon(Icons.timer_outlined, color: bannerColor),
               const SizedBox(width: 12),
-              Text(
-                _trialDaysRemaining > 0
-                    ? '$_trialDaysRemaining trial days remaining'
-                    : 'Your free trial has ended',
-                style: tt.titleSmall?.copyWith(
-                  color: AppColors.accent,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  bannerText,
+                  style: tt.titleSmall?.copyWith(
+                    color: bannerColor,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          'Your sacred journey has begun. Continue uninterrupted after your '
-              'free trial.',
-          style: tt.bodyMedium?.copyWith(
-            color: cs.onSurface.withValues(alpha: 0.75),
-            height: 1.5,
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Text(
+            expired
+                ? 'Become a member to continue with full access.'
+                : 'No automatic charge occurs when the trial ends.',
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ),
+        const SizedBox(height: 16),
+        Divider(color: cs.outline.withValues(alpha: 0.2), height: 1),
         const SizedBox(height: 20),
+        _membershipIncludes(context),
+        const SizedBox(height: 24),
         _planCard(context),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         _purchaseDisclosure(context),
-        const SizedBox(height: 34),
+        const SizedBox(height: 22),
         _primaryButton(
           context,
           label: 'Begin Membership',
@@ -420,58 +428,95 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
     );
   }
 
-  // ── Reusable: benefits card ─────────────────────────────────────────────
-  Widget _benefitsCard(
-      BuildContext context, {
-        required String title,
-        required List<String> benefits,
-      }) {
+  // ── Reusable: "Your Membership Includes" row ────────────────────────────
+  Widget _membershipIncludes(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: cs.outline.withValues(alpha: 0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+    final divider = VerticalDivider(
+      width: 1,
+      thickness: 1,
+      color: cs.outline.withValues(alpha: 0.2),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Your Membership Includes',
+          style: tt.titleSmall?.copyWith(
+            color: AppColors.primary,
+            fontWeight: FontWeight.w700,
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _includeItem(
+                  context,
+                  icon: Icons.menu_book_outlined,
+                  label: 'Full Daily Darshan',
+                  circleColor: AppColors.primary.withValues(alpha: 0.08),
+                  iconColor: AppColors.primary,
+                ),
+              ),
+              divider,
+              Expanded(
+                child: _includeItem(
+                  context,
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Unlimited Guru Chat',
+                  circleColor: AppColors.accent.withValues(alpha: 0.15),
+                  iconColor: AppColors.accent,
+                ),
+              ),
+              divider,
+              Expanded(
+                child: _includeItem(
+                  context,
+                  // TODO: swap for your diya icon/asset if you have one.
+                  icon: Icons.local_fire_department_outlined,
+                  label: 'Seva Diya Tracker',
+                  circleColor: AppColors.primary.withValues(alpha: 0.08),
+                  iconColor: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _includeItem(
+      BuildContext context, {
+        required IconData icon,
+        required String label,
+        required Color circleColor,
+        required Color iconColor,
+      }) {
+    final tt = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: circleColor,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 26),
+          ),
+          const SizedBox(height: 10),
           Text(
-            title,
-            style: tt.titleSmall?.copyWith(
+            label,
+            textAlign: TextAlign.center,
+            style: tt.bodySmall?.copyWith(
               color: AppColors.primary,
               fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 14),
-          ...benefits.map(
-                (b) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  Icon(Icons.check_circle,
-                      color: AppColors.accent, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      b,
-                      style: tt.bodyMedium?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.85),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
         ],
@@ -504,7 +549,7 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
             style: tt.titleMedium?.copyWith(
               color: AppColors.onPrimary,
               fontSize: 22,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 8),
@@ -520,22 +565,15 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
                 ),
               ),
               if (_subscription.price != null) ...[
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 Text(
                   '/month',
-                  style: tt.bodyMedium?.copyWith(
-                    color: AppColors.onPrimary.withValues(alpha: 0.85),
+                  style: tt.bodyLarge?.copyWith(
+                    color: AppColors.onPrimary.withValues(alpha: 0.9),
                   ),
                 ),
               ],
             ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Localized pricing shown automatically by Apple / Google.',
-            style: tt.bodySmall?.copyWith(
-              color: AppColors.onPrimary.withValues(alpha: 0.7),
-            ),
           ),
         ],
       ),
@@ -546,12 +584,10 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
   Widget _purchaseDisclosure(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final store =
-        defaultTargetPlatform == TargetPlatform.iOS ? 'Apple' : 'Google Play';
-    final price = _subscription.price;
+    final store = _storeName;
     final linkStyle = tt.bodySmall?.copyWith(
       color: AppColors.primary,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w700,
       decoration: TextDecoration.underline,
     );
 
@@ -559,28 +595,26 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${price != null ? '$price billed monthly. ' : 'Billed monthly. '}'
-          'The subscription renews automatically each month until you cancel. '
-          'Cancel anytime through $store — at least 24 hours before the end '
-          'of the current period to avoid the next charge. Payment is '
-          'charged to your $store account when you confirm the purchase. '
-          'Your free trial never charges you automatically. No prorated '
-          'refunds; refunds follow $store policy.',
+          'Your subscription renews monthly at the displayed price until '
+              'cancelled. Payment is processed through $store. Cancel anytime '
+              'through $store before your next renewal.\n'
+              'No prorated refunds; refunds are subject to $store policies and '
+              'applicable law.',
           style: tt.bodySmall?.copyWith(
             color: cs.onSurfaceVariant,
             height: 1.4,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Wrap(
-          spacing: 16,
+          spacing: 20,
           children: [
             GestureDetector(
-              onTap: () => _openUrl(SubscriptionConstants.termsUrl),
+              onTap: () => context.push('/terms-of-service'),
               child: Text('Terms of Service', style: linkStyle),
             ),
             GestureDetector(
-              onTap: () => _openUrl(SubscriptionConstants.privacyUrl),
+              onTap: () => context.push('/privacy-policy'),
               child: Text('Privacy Policy', style: linkStyle),
             ),
           ],
@@ -601,7 +635,6 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
       height: 54,
       child: FilledButton(
         style: FilledButton.styleFrom(
-          // Per-step color: saffron → indigo → green → terracotta
           backgroundColor: AppColors.accent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -610,17 +643,21 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
         onPressed: loading ? null : onTap,
         child: loading
             ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: AppColors.primary,
-                ),
-              )
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: AppColors.primary,
+          ),
+        )
             : Text(
-                label,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary),
-              ),
+          label,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primary,
+          ),
+        ),
       ),
     );
   }
@@ -629,10 +666,10 @@ class _GuruDakshinaPageState extends State<GuruDakshinaPage> {
   void _onBeginMembership() => _subscription.buy();
 
   Future<void> _onManageMembership() => _openUrl(
-        defaultTargetPlatform == TargetPlatform.iOS
-            ? SubscriptionConstants.iosManageUrl
-            : SubscriptionConstants.androidManageUrl,
-      );
+    defaultTargetPlatform == TargetPlatform.iOS
+        ? SubscriptionConstants.iosManageUrl
+        : SubscriptionConstants.androidManageUrl,
+  );
 
   Future<void> _openUrl(String url) async {
     var opened = false;

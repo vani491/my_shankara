@@ -92,8 +92,8 @@ class AccountDeletionService {
     try {
       await NotificationService.instance.cancelAll();
       final prefs = await SharedPreferences.getInstance();
+      // 'isOnboarded' is a per-device flag and is deliberately kept.
       for (final key in const [
-        'isOnboarded',
         'notifications_enabled',
         'notif_hour',
         'notif_minute',

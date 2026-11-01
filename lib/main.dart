@@ -11,6 +11,7 @@ import 'services/notification_service.dart';
 import 'services/subscription_service.dart';
 
 import 'dart:async';
+
 // chandni changes
 import 'firebase_options.dart';
 import 'screens/root_nav.dart';
@@ -25,6 +26,7 @@ import 'setting_pages/privacy_policy.dart';
 import 'screens/manage_subscription.dart';
 import 'onboarding_flow/bb_verify_email_screen.dart';
 import 'screens/profile_basics.dart';
+import 'routing/route_guard.dart';
 // import 'screens/ca_onboarding_as_guest.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -32,166 +34,270 @@ import 'theme/app_theme.dart';
 import 'theme/colors.dart';
 
 class AppState extends ChangeNotifier {
-  AppState();
+  static const _onboardedKey = 'isOnboarded';
+
+  /// Upper bound on how long startup may hold the splash if auth or the
+  /// preferences read never resolves (Firebase init failed, channel hung).
+  static const _startupTimeout = Duration(seconds: 10);
+  static const _profileReadTimeout = Duration(seconds: 4);
 
   User? _user;
-
-  bool _isOnboarded = false;
-  // null = not yet determined (e.g. still loading, or the last check
-  // failed/timed out) — the router must not treat this as "incomplete".
-  bool? _isProfileComplete;
   bool _isEmailVerified = false;
 
-  StreamSubscription<User?>? _sub;
-  String? _preferredName;
-  String? _fullName;
+  // null = not yet known (loading, or the last read failed/timed out).
+  bool? _isProfileComplete;
   Map<String, dynamic>? _userData;
 
+  // Per-device "has seen the intro slides" flag. SharedPreferences is the
+  // source of truth; this is the in-memory copy.
+  bool _isOnboarded = false;
+
+  // The router must not decide anything until both are true; see [isReady].
+  bool _authResolved = false;
+  bool _onboardingLoaded = false;
+  final Completer<void> _readyCompleter = Completer<void>();
+  Timer? _readyWatchdog;
+
+  StreamSubscription<User?>? _authSub;
+
+  // Bumped on every auth event so an older event's slow Firestore read can't
+  // overwrite the state of a newer one (e.g. sign-out during sign-in).
+  int _authGeneration = 0;
+
   User? get user => _user;
+
   bool get isOnboarded => _isOnboarded;
+
   bool? get isProfileComplete => _isProfileComplete;
+
   bool get isEmailVerified => _isEmailVerified;
 
-  String? get preferredName => _preferredName;
-  String? get fullName => _fullName;
   Map<String, dynamic>? get userData => _userData;
 
-  Future<void> refreshEmailVerification() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      await user.reload();
-      _isEmailVerified =
-          FirebaseAuth.instance.currentUser?.emailVerified ?? false;
-      notifyListeners();
+  String? get preferredName => _userData?['preferredName'] as String?;
+
+  String? get fullName => _userData?['fullName'] as String?;
+
+  /// True once the first auth state and the onboarding flag have both loaded.
+  bool get isReady => _authResolved && _onboardingLoaded;
+
+  /// Completes once [isReady] first becomes true.
+  Future<void> get whenReady => _readyCompleter.future;
+
+  RouteGuardState get routeGuardState => RouteGuardState(
+    isReady: isReady,
+    isOnboarded: _isOnboarded,
+    isSignedIn: _user != null,
+    isGuest: _user?.isAnonymous ?? false,
+    isEmailVerified: _isEmailVerified,
+    isProfileComplete: _isProfileComplete,
+  );
+
+  /// Starts loading the onboarding flag and listening to auth. Call once,
+  /// after `Firebase.initializeApp` (successful or not).
+  void start() {
+    _readyWatchdog = Timer(_startupTimeout, _forceReady);
+    unawaited(_loadOnboardingFlag());
+    try {
+      _authSub = FirebaseAuth.instance.authStateChanges().listen(
+        (u) => unawaited(_onAuthChanged(u)),
+        onError: (Object e, StackTrace st) {
+          debugPrint('AppState: auth stream error: $e\n$st');
+          _resolveAuthAsSignedOutIfPending();
+        },
+      );
+    } catch (e, st) {
+      // Firebase isn't available; there is no session to wait for.
+      debugPrint('AppState: could not listen to auth: $e\n$st');
+      _resolveAuthAsSignedOutIfPending();
     }
   }
 
-  Future<void> attachAuth() async {
-    await _sub?.cancel();
-    _sub = FirebaseAuth.instance.authStateChanges().listen((u) async {
-      _user = u;
-      _isEmailVerified = u?.emailVerified ?? false;
-      if (u != null) {
-        await checkProfileComplete();
-        await loadUserData();
-      } else {
-        _isProfileComplete = null;
-        _preferredName = null;
-        _fullName = null;
-        _userData = null;
+  Future<void> _onAuthChanged(User? user) async {
+    final generation = ++_authGeneration;
+
+    // Signed in (guest included) implies the slides were already seen.
+    if (user != null) _markOnboarded();
+
+    // Work out the new state completely before publishing any of it, so the
+    // router never sees a new user paired with the previous user's profile.
+    bool? profileComplete;
+    Map<String, dynamic>? userData;
+    if (user != null && user.isAnonymous) {
+      profileComplete = true;
+    } else if (user != null) {
+      final doc = await _fetchUserDoc(user);
+      if (generation != _authGeneration) return; // superseded by a newer event
+      if (doc != null) {
+        userData = doc.data();
+        profileComplete = doc.exists && userData?['fullName'] != null;
+      } else if (_user?.uid == user.uid) {
+        // Read failed: keep what we knew for this user, never guess "false".
+        userData = _userData;
+        profileComplete = _isProfileComplete;
       }
-      notifyListeners();
-    });
+    }
+
+    _user = user;
+    _isEmailVerified = user?.emailVerified ?? false;
+    _isProfileComplete = profileComplete;
+    _userData = userData;
+    _authResolved = true;
+    _completeReadyIfNeeded();
+    notifyListeners();
   }
 
-  Future<void> checkProfileComplete() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _fetchUserDoc(
+    User user,
+  ) async {
+    try {
+      return await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get()
+          .timeout(_profileReadTimeout);
+    } catch (e) {
+      debugPrint('AppState: user profile read failed: $e');
+      return null;
+    }
+  }
 
+  /// Re-reads the signed-in user's profile (e.g. after the profile form is
+  /// saved). A failed read leaves the known state untouched.
+  Future<void> checkProfileComplete() async {
+    final user = _user;
+    if (user == null) return;
     if (user.isAnonymous) {
       _isProfileComplete = true;
       notifyListeners();
       return;
     }
-
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      _isProfileComplete = doc.exists && doc.data()?['fullName'] != null;
-    } catch (e) {
-      // Leave _isProfileComplete as-is (null if never determined yet, or
-      // whatever it was last known to be) — a transient/timed-out read
-      // must not be treated as "profile incomplete" and force a redirect.
-      debugPrint('checkProfileComplete failed (leaving state unchanged): $e');
-    }
+    final generation = _authGeneration;
+    final doc = await _fetchUserDoc(user);
+    if (doc == null || generation != _authGeneration) return;
+    _userData = doc.data();
+    _isProfileComplete = doc.exists && _userData?['fullName'] != null;
     notifyListeners();
   }
 
-  Future<void> loadUserData() async {
+  Future<void> refreshEmailVerification() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    await user.reload();
+    _isEmailVerified =
+        FirebaseAuth.instance.currentUser?.emailVerified ?? false;
+    notifyListeners();
+  }
 
-
-    if (user.isAnonymous) return;
-
+  Future<void> _loadOnboardingFlag() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      if (doc.exists) {
-        _userData = doc.data();
-        _preferredName = _userData?['preferredName'];
-        _fullName = _userData?['fullName'];
-        notifyListeners();
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getBool(_onboardedKey) ?? false;
+      // OR, not assign: a sign-in may already have marked it while we read.
+      _isOnboarded = _isOnboarded || stored;
+    } catch (e, st) {
+      debugPrint('AppState: could not read isOnboarded: $e\n$st');
+    }
+    _onboardingLoaded = true;
+    _completeReadyIfNeeded();
+    notifyListeners();
+  }
+
+  /// Called by the intro slides when the user finishes or skips them.
+  Future<void> setOnboarded([bool value = true]) async {
+    _isOnboarded = value;
+    _onboardingLoaded = true;
+    await _persistOnboarded(value);
+    _completeReadyIfNeeded();
+    notifyListeners();
+  }
+
+  /// Sets the flag in memory and on disk. Restores it if it is missing for a
+  /// signed-in user (an older build cleared it on sign-out, or iOS kept the
+  /// Firebase session in the Keychain across a reinstall), so the slides stay
+  /// strictly "once per install".
+  void _markOnboarded() {
+    if (_isOnboarded) return;
+    _isOnboarded = true;
+    unawaited(_persistOnboarded(true));
+  }
+
+  Future<void> _persistOnboarded(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_onboardedKey, value);
     } catch (e) {
-      print('Error loading user data: $e');
+      debugPrint('AppState: could not persist isOnboarded: $e');
     }
   }
 
-  Future<void> loadOnboardingFlag() async {
-    final prefs = await SharedPreferences.getInstance();
-    _isOnboarded = prefs.getBool('isOnboarded') ?? false;
+  void _resolveAuthAsSignedOutIfPending() {
+    if (_authResolved) return;
+    _authResolved = true;
+    _completeReadyIfNeeded();
     notifyListeners();
   }
 
-  Future<void> setOnboarded([bool value = true]) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isOnboarded', value);
-    _isOnboarded = value;
+  void _forceReady() {
+    if (isReady) return;
+    debugPrint(
+      'AppState: startup not resolved in time '
+      '(auth=$_authResolved, onboarding=$_onboardingLoaded), forcing ready',
+    );
+    if (!_authResolved) {
+      // Best effort from the synchronously restored session. A late auth
+      // event still lands normally through [_onAuthChanged].
+      try {
+        _user = FirebaseAuth.instance.currentUser;
+      } catch (_) {
+        _user = null;
+      }
+      _isEmailVerified = _user?.emailVerified ?? false;
+      if (_user != null) _markOnboarded();
+      if (_user?.isAnonymous ?? false) _isProfileComplete = true;
+      _authResolved = true;
+    }
+    _onboardingLoaded = true;
+    _completeReadyIfNeeded();
     notifyListeners();
+  }
+
+  void _completeReadyIfNeeded() {
+    if (!isReady || _readyCompleter.isCompleted) return;
+    _readyWatchdog?.cancel();
+    _readyCompleter.complete();
   }
 
   @override
   void dispose() {
-    _sub?.cancel();
+    _readyWatchdog?.cancel();
+    _authSub?.cancel();
     super.dispose();
   }
 }
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  // Keep the native splash up until the router knows where to go, so the
+  // first screen the user sees is already the right one.
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  final appState = AppState();
-
   try {
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    } catch (e, st) {
-      debugPrint('Firebase init failed (continuing anyway): $e\n$st');
-    }
-
-    try {
-      await appState.attachAuth().timeout(const Duration(seconds: 4));
-    } catch (e, st) {
-      debugPrint('attachAuth failed (continuing anyway): $e\n$st');
-    }
-
-    try {
-      await appState.loadOnboardingFlag().timeout(const Duration(seconds: 4));
-    } catch (e, st) {
-      debugPrint('loadOnboardingFlag failed (continuing anyway): $e\n$st');
-    }
-
-    final initialUser = FirebaseAuth.instance.currentUser;
-    if (initialUser != null) {
-      try {
-        await appState.checkProfileComplete().timeout(const Duration(seconds: 4));
-      } catch (e, st) {
-        debugPrint('checkProfileComplete failed (continuing anyway): $e\n$st');
-      }
-    }
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e, st) {
-    debugPrint('Startup init error (continuing anyway): $e\n$st');
-  } finally {
-    FlutterNativeSplash.remove();
+    debugPrint('Firebase init failed (continuing anyway): $e\n$st');
   }
+
+  final appState = AppState()..start();
+  unawaited(
+    appState.whenReady.then((_) {
+      // Remove after the frame that renders the resolved route.
+      widgetsBinding.addPostFrameCallback((_) => FlutterNativeSplash.remove());
+      widgetsBinding.ensureVisualUpdate();
+    }),
+  );
 
   // Start listening to the purchase stream right away so no store transaction
   // delivered at launch is missed. The listener is attached synchronously;
@@ -224,6 +330,7 @@ Future<void> _initNotificationsInBackground() async {
 
 class MyApp extends StatefulWidget {
   const MyApp({super.key, required this.appState});
+
   final AppState appState;
 
   @override
@@ -232,69 +339,21 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final GoRouter _router = GoRouter(
-    initialLocation: '/',
+    // Start on the splash; the guard moves on once AppState.isReady.
+    initialLocation: AppRoutes.splash,
     refreshListenable: widget.appState,
     debugLogDiagnostics: false,
 
-    redirect: (context, state) {
-      final isOnboarded = widget.appState.isOnboarded;
-      final user = widget.appState.user;
-      final isAuthed = user != null;
-      final isAnonymous = user?.isAnonymous ?? false;
-      final isEmailVerified = widget.appState.isEmailVerified;
-      final isProfileComplete = widget.appState.isProfileComplete;
-      final currentPath = state.uri.path;
-
-      final goingToLogin = currentPath == '/login';
-      final goingToOnboarding = currentPath == '/onboarding';
-      final goingToProfileBasics = currentPath == '/profile-basics';
-      final goingToVerifyEmail = currentPath == '/verify-email';
-
-      final isPublicLegalPage =
-          currentPath == '/privacy-policy' || currentPath == '/terms-of-service';
-      if (isPublicLegalPage) return null; // always allow, regardless of auth state
-
-      // Onboarding check
-      if (!isOnboarded && !goingToOnboarding) {
-        return '/onboarding';
-      }
-
-      // Authentication check
-      if (isOnboarded && !isAuthed && !goingToLogin && !goingToOnboarding) {
-        return '/login';
-      }
-
-      // Email verification - SKIP for anonymous users
-      if (isAuthed &&
-          !isAnonymous &&
-          !isEmailVerified &&
-          !goingToVerifyEmail &&
-          !goingToProfileBasics) {
-        return '/verify-email';
-      }
-
-      // Profile completion - SKIP for anonymous users.
-      // Only redirect once we've *confirmed* the profile is incomplete
-      // (isProfileComplete == false). While it's still null (unknown —
-      // e.g. the Firestore check hasn't resolved yet or timed out), don't
-      // force the user into the "About You" screen.
-      if (isAuthed &&
-          !isAnonymous &&
-          isEmailVerified &&
-          isProfileComplete == false &&
-          !goingToProfileBasics) {
-        return '/profile-basics';
-      }
-
-      // Already authenticated users shouldn't access login/onboarding
-      if (isAuthed && !isAnonymous && (goingToLogin || goingToOnboarding)){
-        return '/';
-      }
-
-      return null;
-    },
+    // All routing rules live in routing/route_guard.dart. Re-evaluated on
+    // every navigation and whenever AppState notifies.
+    redirect: (context, state) =>
+        resolveRedirect(widget.appState.routeGuardState, state.uri.path),
 
     routes: [
+      GoRoute(
+        path: AppRoutes.splash,
+        builder: (_, __) => const _StartupSplash(),
+      ),
       GoRoute(path: '/support', builder: (_, __) => const HelpSupportScreen()),
       GoRoute(path: '/about', builder: (context, state) => const AboutScreen()),
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
@@ -322,17 +381,13 @@ class _MyAppState extends State<MyApp> {
       ),
       GoRoute(
         path: '/edit-profile',
-        builder: (_, __) => ProfileBasicsPage(
-          appState: widget.appState,
-          isEditMode: true,
-        ),
+        builder: (_, __) =>
+            ProfileBasicsPage(appState: widget.appState, isEditMode: true),
       ),
       GoRoute(
         path: '/profile',
-        builder: (_, __) => ProfileBasicsPage(
-          appState: widget.appState,
-          isEditMode: true,
-        ),
+        builder: (_, __) =>
+            ProfileBasicsPage(appState: widget.appState, isEditMode: true),
       ),
       GoRoute(
         path: '/profile-basics',
@@ -340,12 +395,17 @@ class _MyAppState extends State<MyApp> {
       ),
       GoRoute(
         path: '/darshan',
-        builder: (_, state) => DarshanScreen(
-          onDarshanComplete: state.extra as VoidCallback?,
-        ),
+        builder: (_, state) =>
+            DarshanScreen(onDarshanComplete: state.extra as VoidCallback?),
       ),
-      GoRoute(path: '/guru-dakshina', builder: (_, __) => const GuruDakshinaPage()),
-      GoRoute(path: '/share-darshan', builder: (_, __) => const ShareDarshanPage()),
+      GoRoute(
+        path: '/guru-dakshina',
+        builder: (_, __) => const GuruDakshinaPage(),
+      ),
+      GoRoute(
+        path: '/share-darshan',
+        builder: (_, __) => const ShareDarshanPage(),
+      ),
       GoRoute(
         path: '/verify-email',
         builder: (_, __) => VerifyEmailScreen(
@@ -379,15 +439,38 @@ class _MyAppState extends State<MyApp> {
 }
 
 Future<void> performSignOutActions() async {
+  // 'isOnboarded' is a per-device flag (has this device seen the intro
+  // slides), so it is intentionally NOT cleared on sign-out.
   await FirebaseAuth.instance.signOut();
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.remove('isOnboarded');
+}
+
+/// Shown while [AppState.isReady] is false. Deliberately has no navigation of
+/// its own — the router redirect moves on once auth and the flag have loaded.
+class _StartupSplash extends StatelessWidget {
+  const _StartupSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset('assets/branding/splash-logo.png', width: 160),
+            const SizedBox(height: 24),
+            const CircularProgressIndicator(),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> showSignOutConfirmDialog(
-    BuildContext context, {
-      Future<void> Function()? onConfirm,
-    }) async {
+  BuildContext context, {
+  Future<void> Function()? onConfirm,
+}) async {
   bool isSigningOut = false;
 
   await showDialog<void>(
@@ -400,23 +483,18 @@ Future<void> showSignOutConfirmDialog(
             title: const Text('Sign out?'),
             content: Text(
               "You'll need to sign in again to continue.",
-              style: TextStyle(color: AppColors.onSurface.withValues(alpha: 0.7)),
+              style: TextStyle(
+                color: AppColors.onSurface.withValues(alpha: 0.7),
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: isSigningOut ? null : () => Navigator.of(ctx).pop(),
                 child: const Text('Cancel'),
               ),
-              ElevatedButton.icon(
-                icon: isSigningOut
-                    ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : const Icon(Icons.logout),
-                label: Text(isSigningOut ? 'Signing out…' : 'Sign out'),
+              ElevatedButton(
                 style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   backgroundColor: Theme.of(ctx).colorScheme.error,
                   foregroundColor: Theme.of(ctx).colorScheme.onError,
                   disabledBackgroundColor: Theme.of(
@@ -426,29 +504,30 @@ Future<void> showSignOutConfirmDialog(
                 onPressed: isSigningOut
                     ? null
                     : () async {
-                  setState(() => isSigningOut = true);
-                  try {
-                    if (onConfirm != null) {
-                      await onConfirm();
-                    } else {
-                      await performSignOutActions();
-                    }
-                    if (context.mounted) {
-                      context.go('/login');
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Sign out failed: $e')),
-                      );
-                    }
-                  } finally {
-                    if (ctx.mounted) setState(() => isSigningOut = false);
-                    if (Navigator.of(ctx).canPop()) {
-                      Navigator.of(ctx).pop();
-                    }
-                  }
-                },
+                        setState(() => isSigningOut = true);
+                        try {
+                          if (onConfirm != null) {
+                            await onConfirm();
+                          } else {
+                            await performSignOutActions();
+                          }
+                          if (context.mounted) {
+                            context.go('/login');
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Sign out failed: $e')),
+                            );
+                          }
+                        } finally {
+                          if (ctx.mounted) setState(() => isSigningOut = false);
+                          if (Navigator.of(ctx).canPop()) {
+                            Navigator.of(ctx).pop();
+                          }
+                        }
+                      },
+                child: Text(isSigningOut ? 'Signing out…' : 'Sign out'),
               ),
             ],
           );
