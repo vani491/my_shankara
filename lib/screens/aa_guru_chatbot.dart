@@ -8,7 +8,6 @@ import 'package:http/http.dart' as http;
 import 'package:myshankara/theme/app_theme.dart';
 import '../theme/colors.dart';
 import '../widgets/app_layout.dart';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../onboarding_flow/ba_create_account.dart';
@@ -48,6 +47,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
   /// True when the current user is anonymous (guest) or not signed in.
   bool get _isGuest => _auth.currentUser?.isAnonymous ?? true;
+
 
   /// Returns how many messages the guest has sent today.
   Future<int> _guestMessageCountToday() async {
@@ -621,6 +621,15 @@ class _ChatbotPageState extends State<ChatbotPage> {
       // 3. Increment guest counter OR persist to Firestore
       if (_isGuest) {
         if (outcome.accepted) await _incrementGuestCount();
+        // The proxy verifies conversation ownership against Firestore, so
+        // guests need the Dify conversation id stored too (no messages are
+        // saved) or their 2nd message gets `conversation_not_owned`.
+        if (outcome.accepted && _difyConversationId.isNotEmpty) {
+          try {
+            await _createChatIfNeeded(text);
+            await _saveDifyConversationId();
+          } catch (_) {}
+        }
       } else {
         // Save the conversation id BEFORE the send button re-enables: the
         // proxy answers 403 on the next turn if Firestore doesn't have it.
