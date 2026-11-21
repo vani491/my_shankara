@@ -17,6 +17,7 @@ import '../services/access_service.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:math' as math;
 
 // ─── Guest daily-message limit ───────────────────────────────────────────────
 const int _kGuestDailyLimit = 5;
@@ -40,6 +41,42 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
   final List<_Msg> _messages = [];
   bool _botTyping = false;
+
+  // ── Waiting indicator ───────────────────────────────────────────────────────
+  static const List<String> _invocations = [
+    'Om Namo Narayanaya',
+    'Jai Bajrang Bali',
+    'Om Aim Saraswatyai Namah',
+    'Har Har Mahadev',
+    'Om Gam Ganapataye Namah',
+    'Jai Shri Krishna',
+    'Om Shakti',
+    'Swamiye Saranam Ayyappa',
+    'Jai Jai Shankar',
+    'Om Suryaya Namah',
+    'Jai Shri Ram',
+    'Om Namo Brahmane Namah',
+    'Har Har Shankar',
+    'Om Saravanabhavaya Namah',
+    'Jai Mata Di',
+    'Om Namo Vasudevaya',
+    'Om Namah Shivaya',
+    'Om Namo Bhagavate Narasimhaya',
+    'Shri Gurubhyo Namah',
+    'Om Shri Mahalakshmyai Namah',
+  ];
+  final math.Random _rng = math.Random();
+  int _lastInvocation = -1;
+  String _invocation = '';
+
+  /// Picks one invocation for the current question, never repeating the
+  /// previous one. Fixed until the next question is submitted.
+  void _pickInvocation() {
+    var i = _rng.nextInt(_invocations.length - 1);
+    if (i >= _lastInvocation && _lastInvocation >= 0) i++;
+    _lastInvocation = i;
+    _invocation = _invocations[i];
+  }
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -553,6 +590,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
     // Disable the send button immediately so rapid taps can't queue up
     // multiple requests while the async checks below are in flight.
+    _pickInvocation();
     setState(() => _botTyping = true);
 
     // 1. Check guest daily limit
@@ -1173,7 +1211,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
                       itemCount: _messages.length + _typingExtra,
                       itemBuilder: (context, rIndex) {
                         // rIndex 0 is the bottom-most item.
-                        if (rIndex < _typingExtra) return const _TypingBubble();
+                        if (rIndex < _typingExtra) {
+                          return _TypingBubble(invocation: _invocation);
+                        }
 
                         final msg =
                             _messages[_messages.length -
@@ -1184,7 +1224,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
                         // Streaming bubble with no text yet: show the dots.
                         if (isStreamingMsg && msg.text.trim().isEmpty) {
-                          return const _TypingBubble();
+                          return _TypingBubble(invocation: _invocation);
                         }
 
                         if (msg.isWelcome) {
@@ -1809,79 +1849,78 @@ class _MessageActionsState extends State<_MessageActions> {
   }
 }
 
-class _TypingBubble extends StatefulWidget {
-  const _TypingBubble();
+/// Waiting indicator: one devotional invocation and a small spinner, shown in
+/// a Guru bubble until the first response token arrives.
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble({required this.invocation});
 
-  @override
-  State<_TypingBubble> createState() => _TypingBubbleState();
-}
-
-class _TypingBubbleState extends State<_TypingBubble>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
+  final String invocation;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-            bottomRight: Radius.circular(16),
-            bottomLeft: Radius.circular(4),
-          ),
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, right: 48),
+      child: Align(
+        alignment: Alignment.centerLeft,
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (i) {
-            return Padding(
-              padding: EdgeInsets.only(right: i == 2 ? 0 : 6),
-              child: FadeTransition(
-                opacity: Tween(begin: 0.2, end: 1.0).animate(
-                  CurvedAnimation(
-                    parent: _c,
-                    curve: Interval(i * 0.2, 0.6 + i * 0.2),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8, top: 4),
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.transparent,
+                child: Image.asset(
+                  'assets/images/Guru-Chat.png',
+                  width: 32,
+                  height: 32,
+                ),
+              ),
+            ),
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(4),
+                    topRight: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
                   ),
                 ),
-                child: const _Dot(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        invocation,
+                        style: const TextStyle(
+                          color: AppColors.onPrimary,
+                          height: 1.5,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.onPrimary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 6,
-      height: 6,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Theme.of(
-            context,
-          ).colorScheme.onSurfaceVariant.withOpacity(0.7),
+            ),
+          ],
         ),
       ),
     );

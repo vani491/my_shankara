@@ -32,6 +32,8 @@ import 'routing/route_guard.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'theme/app_theme.dart';
 import 'theme/colors.dart';
+import 'services/app_update_service.dart';
+import 'widgets/update_dialog.dart';
 
 class AppState extends ChangeNotifier {
   static const _onboardedKey = 'isOnboarded';
@@ -338,7 +340,26 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkForUpdate();
+  }
+
+  Future<void> _checkForUpdate() async {
+    await widget.appState.whenReady;
+    final result = await AppUpdateService.instance.check();
+    if (result.type == UpdateType.none) return;
+    // Wait a frame so the router's navigator is mounted.
+    await WidgetsBinding.instance.endOfFrame;
+    final ctx = _navKey.currentContext;
+    if (ctx != null && ctx.mounted) await showUpdateDialog(ctx, result);
+  }
+
   late final GoRouter _router = GoRouter(
+    navigatorKey: _navKey,
     // Start on the splash; the guard moves on once AppState.isReady.
     initialLocation: AppRoutes.splash,
     refreshListenable: widget.appState,
